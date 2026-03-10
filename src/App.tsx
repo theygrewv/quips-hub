@@ -5,6 +5,7 @@ export default function App() {
   const [client, setClient] = useState<BrowserOAuthClient | null>(null);
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [view, setView] = useState('hub'); // 'hub', 'bats', 'glyphs', 'germ'
 
   useEffect(() => {
     const init = async () => {
@@ -16,69 +17,73 @@ export default function App() {
         const result = await c.init();
         if (result?.session) setSession(result.session);
         setClient(c);
-      } catch (err) {
-        console.error("Init error:", err);
-      } finally {
-        setLoading(false);
-      }
+      } catch (err) { console.error(err); } finally { setLoading(false); }
     };
     init();
   }, []);
 
   const login = async () => {
-    if (!client) return;
     const handle = (document.getElementById('handle') as HTMLInputElement).value;
-    try {
-      await client.signIn(handle);
-    } catch (err) {
-      alert("System Error: Login failed. Verify handle.");
-    }
+    try { await client?.signIn(handle); } catch (err) { alert("System Error"); }
   };
 
-  if (loading) return (
-    <div style={{background:'#000', color:'#0f0', height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'monospace'}}>
-      <p>> BOOTING QUIPS_HUB...</p>
+  if (loading) return <div style={fullScreen}>[ BOOTING QUIPS_OS... ]</div>;
+
+  // --- SUB-PAGES ---
+  if (view === 'bats') return (
+    <div style={fullScreen}>
+      <h1>[ BATS ]</h1>
+      <p>Bilateral Analytics & Tracking System active.</p>
+      <button onClick={() => setView('hub')} style={smallBtn}>BACK_TO_HUB</button>
     </div>
   );
 
+  if (view === 'glyphs') return (
+    <div style={fullScreen}>
+      <h1>[ GLYPHS ]</h1>
+      <p>Visual decryptors standing by.</p>
+      <button onClick={() => setView('hub')} style={smallBtn}>BACK_TO_HUB</button>
+    </div>
+  );
+
+  if (view === 'germ') return (
+    <div style={fullScreen}>
+      <h1>[ GERM_NETWORK ]</h1>
+      <p style={{color:'#f0f'}}>ENCRYPTION_LAYER: ACTIVE</p>
+      <div style={{border:'1px solid #f0f', padding:'10px', margin:'20px 0'}}>
+        <p>> Incoming encrypted message stream...</p>
+      </div>
+      <button onClick={() => setView('hub')} style={smallBtn}>BACK_TO_HUB</button>
+    </div>
+  );
+
+  // --- MAIN HUB ---
   return (
     <div style={{ backgroundColor: '#050505', color: '#0f0', minHeight: '100vh', padding: '20px', fontFamily: 'monospace', textAlign: 'center' }}>
-      <header style={{ marginBottom: '50px', borderBottom: '2px solid #0f0', paddingBottom: '20px' }}>
-        <h1 style={{ fontSize: '3rem', margin: '0', textShadow: '0 0 10px #0f0' }}>quips</h1>
-        <p style={{ opacity: 0.8, marginTop: '10px' }}>[ GAME_HUB_TERMINAL_v1.0 ]</p>
+      <header style={{ marginBottom: '40px', borderBottom: '2px solid #0f0' }}>
+        <h1 style={{ fontSize: '3rem', margin: '0' }}>quips</h1>
+        <p>[ SECURE_GAME_HUB ]</p>
       </header>
 
       {!session ? (
-        <section style={{ maxWidth: '400px', margin: '0 auto', background: '#111', padding: '40px', borderRadius: '5px', border: '1px solid #0f0' }}>
-          <p style={{ marginBottom: '20px' }}>IDENTIFY USERNAME TO START</p>
-          <input 
-            id="handle" 
-            type="text" 
-            placeholder="handle.bsky.social" 
-            style={{ width: '80%', padding: '12px', border: '1px solid #0f0', backgroundColor: '#000', color: '#0f0', marginBottom: '20px' }} 
-          />
-          <button onClick={login} style={{ width: '90%', padding: '15px', backgroundColor: '#0f0', color: '#000', fontWeight: 'bold', border: 'none', cursor: 'pointer', fontSize: '1.1rem' }}>
-            INITIATE SESSION
-          </button>
+        <section style={cardStyle}>
+          <p>IDENTIFY PLAYER</p>
+          <input id="handle" type="text" placeholder="name.bsky.social" style={inputStyle} />
+          <button onClick={login} style={mainBtn}>INITIATE_SESSION</button>
         </section>
       ) : (
         <main style={{ maxWidth: '800px', margin: '0 auto' }}>
-          <div style={{ marginBottom: '40px', padding: '15px', border: '1px solid #0f0' }}>
-            <p>ACTIVE_PLAYER: <span style={{color: '#fff'}}>{session.did}</span></p>
+          <div style={{ marginBottom: '20px', padding: '10px', border: '1px solid #0f0' }}>
+            <p>LOGGED_IN_AS: {session.did}</p>
           </div>
 
-          <nav style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
-            <button style={buttonStyle}>GAME_FEED</button>
-            <button style={buttonStyle}>ACHIEVEMENTS</button>
-            <button style={buttonStyle}>LOBBY</button>
-            <button style={buttonStyle}>GAME_LOGS</button>
-            <button style={buttonStyle}>SUBMIT_QUIP</button>
-            <button 
-              onClick={() => { localStorage.clear(); window.location.reload(); }} 
-              style={{ ...buttonStyle, backgroundColor: '#300', color: '#f00', border: '1px solid #f00' }}
-            >
-              TERMINATE_SESSION
-            </button>
+          <nav style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+            <button onClick={() => setView('bats')} style={btnStyle}>BATS</button>
+            <button onClick={() => setView('glyphs')} style={btnStyle}>GLYPHS</button>
+            <button onClick={() => setView('germ')} style={{...btnStyle, border:'1px solid #f0f', color:'#f0f'}}>GERM_NET</button>
+            <button style={btnStyle}>GAME_LOGS</button>
+            <button style={btnStyle}>ACHIEVEMENTS</button>
+            <button onClick={() => { localStorage.clear(); window.location.reload(); }} style={logoutBtn}>LOGOUT</button>
           </nav>
         </main>
       )}
@@ -86,13 +91,11 @@ export default function App() {
   );
 }
 
-const buttonStyle = {
-  padding: '25px',
-  backgroundColor: '#111',
-  color: '#0f0',
-  border: '1px solid #0f0',
-  fontSize: '1rem',
-  fontWeight: 'bold',
-  cursor: 'pointer',
-  textTransform: 'uppercase' as 'uppercase'
-};
+// --- STYLES ---
+const fullScreen = { background: '#000', color: '#0f0', height: '100vh', display: 'flex', flexDirection: 'column' as 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace' };
+const cardStyle = { maxWidth: '400px', margin: '0 auto', background: '#111', padding: '40px', border: '1px solid #0f0' };
+const inputStyle = { width: '80%', padding: '12px', background: '#000', color: '#0f0', border: '1px solid #0f0', marginBottom: '20px' };
+const mainBtn = { width: '90%', padding: '15px', background: '#0f0', color: '#000', fontWeight: 'bold', border: 'none', cursor: 'pointer' };
+const btnStyle = { padding: '25px', background: '#111', color: '#0f0', border: '1px solid #0f0', fontWeight: 'bold', cursor: 'pointer' };
+const logoutBtn = { padding: '25px', background: '#200', color: '#f00', border: '1px solid #f00', cursor: 'pointer' };
+const smallBtn = { padding: '10px 20px', background: '#0f0', color: '#000', border: 'none', cursor: 'pointer', marginTop: '20px' };
