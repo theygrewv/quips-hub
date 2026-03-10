@@ -21,8 +21,19 @@ export default function App() {
     c.init().then(r => { 
       if (r?.session) setSess(r.session); 
       setClient(c); 
-    });
+    }).catch(console.error);
   }, []);
+
+  const handleLogin = async () => {
+    const input = document.getElementById('h') as HTMLInputElement | null;
+    if (client && input && input.value) {
+      try {
+        await client.signIn(input.value);
+      } catch (e) {
+        console.error("Login Error", e);
+      }
+    }
+  };
 
   if (view === 'germ') return (
     <div style={styles.germ}>
@@ -36,49 +47,25 @@ export default function App() {
     </div>
   );
 
-  if (view === 'bats') return (
-    <div style={styles.hub}>
-      <h1>[ BATS_SYSTEM ]</h1>
-      <p>Bilateral Analytics active.</p>
-      <button onClick={() => setView('hub')} style={styles.btn}>RETURN_TO_HUB</button>
-    </div>
-  );
-
-  if (view === 'glyphs') return (
-    <div style={styles.hub}>
-      <h1>[ GLYPHS ]</h1>
-      <p>Visual decryptors standing by.</p>
-      <button onClick={() => setView('hub')} style={styles.btn}>RETURN_TO_HUB</button>
-    </div>
-  );
-
   return (
     <div style={styles.hub}>
       <h1 style={{ fontSize: '3rem', borderBottom: '2px solid #0f0', marginBottom: '40px' }}>quips</h1>
       {!sess ? (
         <div style={{ marginTop: '50px' }}>
           <p>[ IDENTIFY_PLAYER ]</p>
-          <input id="h" placeholder="handle" style={{ background: '#000', color: '#0f0', border: '1px solid #0f0', padding: '15px' }} />
-          <button 
-            onClick={() => {
-              const val = (document.getElementById('h') as HTMLInputElement).value;
-              client?.signIn(val);
-            }} 
-            style={{ background: '#0f0', color: '#000', padding: '15px', marginLeft: '10px', fontWeight: 'bold', border: 'none' }}
-          >
-            START
+          <input id="h" placeholder="handle.bsky.social" style={{ background: '#000', color: '#0f0', border: '1px solid #0f0', padding: '15px', width: '250px' }} />
+          <br /><br />
+          <button onClick={handleLogin} style={{ background: '#0f0', color: '#000', padding: '15px 30px', fontWeight: 'bold', border: 'none', cursor: 'pointer' }}>
+            INITIATE_SESSION
           </button>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <p style={{marginBottom:'20px'}}>PLAYER_ID: {sess.did}</p>
-          <button onClick={() => setView('bats')} style={styles.btn}>BATS</button>
-          <button onClick={() => setView('glyphs')} style={styles.btn}>GLYPHS</button>
+          <p style={{marginBottom:'20px'}}>PLAYER_CONNECTED: {sess.did}</p>
+          <button onClick={() => setView('hub')} style={styles.btn}>BATS</button>
+          <button onClick={() => setView('hub')} style={styles.btn}>GLYPHS</button>
           <button onClick={() => setView('germ')} style={styles.gBtn}>GERM_NET</button>
-          <button 
-            onClick={() => { localStorage.clear(); window.location.reload(); }} 
-            style={{ ...styles.btn, color: '#f00', borderColor: '#f00' }}
-          >
+          <button onClick={() => { localStorage.clear(); window.location.reload(); }} style={{ ...styles.btn, color: '#f00', borderColor: '#f00' }}>
             TERMINATE
           </button>
         </div>
