@@ -9,15 +9,21 @@ export default function App() {
   useEffect(() => {
     const init = async () => {
       try {
+        // Step 1: Manually fetch the metadata to ensure it's an object
+        const response = await fetch('https://quips.cc/client-metadata.json');
+        const metadata = await response.json();
+
+        // Step 2: Initialize the client with that object
         const c = new BrowserOAuthClient({
           handleResolver: 'https://bsky.social',
-          clientMetadata: "https://quips.cc/client-metadata.json"
+          clientMetadata: metadata
         });
+
         const result = await c.init();
         if (result?.session) setSession(result.session);
         setClient(c);
       } catch (err) {
-        console.error(err);
+        console.error("Initialization failed:", err);
       } finally {
         setLoading(false);
       }
@@ -28,7 +34,11 @@ export default function App() {
   const login = async () => {
     if (!client) return;
     const handle = (document.getElementById('handle') as HTMLInputElement).value;
-    await client.signIn(handle);
+    try {
+      await client.signIn(handle);
+    } catch (err) {
+      console.error("Login failed:", err);
+    }
   };
 
   if (loading) return (
@@ -46,7 +56,6 @@ export default function App() {
 
       {!session ? (
         <section style={{ maxWidth: '400px', margin: '0 auto', background: '#111', padding: '30px', borderRadius: '15px', border: '1px solid #222' }}>
-          <p style={{ marginBottom: '20px' }}>Sign in to access your grooves.</p>
           <input 
             id="handle" 
             type="text" 
@@ -94,4 +103,3 @@ const buttonStyle = {
   transition: '0.2s',
   letterSpacing: '1px'
 };
-
