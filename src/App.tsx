@@ -1,116 +1,59 @@
-import { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
 import { BrowserOAuthClient } from '@atproto/oauth-client-browser';
-import './App.css';
 
-// --- CONFIG FOR QUIPS.CC ---
-const clientURL = "https://quips.cc";
-const clientID = "https://quips.cc/client-metadata.json";
-
-const oauthClient = new BrowserOAuthClient({
+// --- CONFIGURATION ---
+const client = new BrowserOAuthClient({
   handleResolver: 'https://bsky.social',
   clientMetadata: {
-    client_id: clientID,
-    client_name: 'Quips Hub',
-    client_uri: clientURL,
-    redirect_uris: [clientURL + "/"],
+    client_id: 'https://quips.cc/client-metadata.json',
+    redirect_uri: 'https://quips.cc/',
     scope: 'atproto transition:generic',
-    grant_types: ['authorization_code', 'refresh_token'],
-    response_types: ['code'],
-    token_endpoint_auth_method: 'none',
-    dpop_bound_access_tokens: true
+    response_type: 'code',
   },
 });
 
-export default function App() {
+const App = () => {
   const [session, setSession] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const init = async () => {
-      try {
-        const result = await oauthClient.init();
-        if (result?.session) setSession(result.session);
-      } catch (e) {
-        console.error("Atmosphere connection error:", e);
-      } finally {
-        setLoading(false);
+    client.init().then((res) => {
+      if (res?.session) {
+        setSession(res.session);
       }
-    };
-    init();
+    }).catch(console.error);
   }, []);
 
-  const login = async () => {
-    const handle = prompt("Enter your Bluesky handle (e.g., name.bsky.social):");
-    if (handle) {
-      try {
-        await oauthClient.signIn(handle);
-      } catch (e) {
-        alert("Login failed. Check console for details.");
-      }
+  const login = async (handle: string) => {
+    try {
+      await client.signIn(handle);
+    } catch (err) {
+      console.error("Login failed:", err);
     }
   };
 
-  if (loading) return <div className="hub"><h1>connecting to atmosphere...</h1></div>;
-
   return (
-    <Router>
-      <Routes>
-        <Route path="/" element={<Hub session={session} onLogin={login} />} />
-        <Route path="/germ" element={<Germ session={session} />} />
-      </Routes>
-    </Router>
-  );
-}
-
-// --- HUB COMPONENT ---
-function Hub({ session, onLogin }: any) {
-  return (
-    <div className="hub">
-      <div className="cloud-layer"></div>
-      <div className="content">
-        <h1>quips</h1>
-        <div className="auth-status">
-          {session ? (
-            <span className="user-tag">{"online: " + session.sub}</span>
-          ) : (
-            <button className="nav-link auth-btn" onClick={onLogin}>authenticate hub</button>
-          )}
+    <div style={{ padding: '20px', textAlign: 'center', fontFamily: 'sans-serif' }}>
+      <h1>Welcome home, Luminary</h1>
+      <p>quips is now live on the atmosphere.</p>
+      
+      {!session ? (
+        <div>
+          <input id="handle" type="text" placeholder="yourname.bsky.social" />
+          <button onClick={() => login((document.getElementById('handle') as HTMLInputElement).value)}>
+            Login to quips
+          </button>
         </div>
-        <nav>
-          <Link to="/germ" className="nav-link germ-link">germ network</Link>
-        </nav>
-      </div>
-      <p className="footer">securely hosted at quips.cc</p>
+      ) : (
+        <div>
+          <p>Logged in as: {session.did}</p>
+          <button onClick={() => { localStorage.clear(); window.location.reload(); }}>
+            Logout
+          </button>
+        </div>
+      )}
     </div>
   );
-}
+};
 
-// --- GERM COMPONENT ---
-function Germ({ session }: any) {
-  return (
-    <div className="hub germ-theme">
-      <div className="content">
-        <h1 className="germ-title">germ.p2p</h1>
-        <div className="p2p-zone">
-          {session ? (
-            <>
-              <div className="status-bar">NODE AUTHORIZED</div>
-              <div className="p2p-log">
-                <p className="log-entry">{" > Identity: " + session.sub}</p>
-                <p className="log-entry">{" > Status: Synchronized"}</p>
-              </div>
-            </>
-          ) : (
-            <div className="auth-zone">
-              <p className="log-entry">{" ! Unauthorized Access"}</p>
-              <Link to="/" className="nav-link">return to atmosphere</Link>
-            </div>
-          )}
-        </div>
-        <nav style={{marginTop: '40px'}}><Link to="/" className="nav-link">exit</Link></nav>
-      </div>
-    </div>
-  );
-}
+export default App;
 
