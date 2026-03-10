@@ -34,9 +34,8 @@ export default function App() {
     </div>
   );
 
-  // --- SUB-PAGES ---
   if (view === 'bats') return (
-    <div style={fullScreen}>
+    <div style={fs}>
       <h1 style={{color:'#0f0'}}>[ BATS ]</h1>
       <p>Bilateral Analytics & Tracking System: ONLINE</p>
       <button onClick={() => setView('hub')} style={smallBtn}>RETURN_TO_HUB</button>
@@ -44,7 +43,7 @@ export default function App() {
   );
 
   if (view === 'glyphs') return (
-    <div style={fullScreen}>
+    <div style={fs}>
       <h1 style={{color:'#0f0'}}>[ GLYPHS ]</h1>
       <p>Visual Decryptors: STANDBY</p>
       <button onClick={() => setView('hub')} style={smallBtn}>RETURN_TO_HUB</button>
@@ -52,30 +51,27 @@ export default function App() {
   );
 
   if (view === 'germ') return (
-    <div style={{...fullScreen, color:'#f0f'}}>
+    <div style={{...fs, color:'#f0f'}}>
       <h1>[ GERM_NETWORK ]</h1>
       <div style={{border:'1px solid #f0f', padding:'20px', textAlign:'left'}}>
         <p>> ENCRYPTION_LAYER: ARMORED</p>
         <p>> STATUS: MONITORING_MESSAGES</p>
-        <p>> SOURCE: dev.quips.cc</p>
       </div>
       <button onClick={() => setView('hub')} style={{...smallBtn, backgroundColor:'#f0f'}}>RETURN_TO_HUB</button>
     </div>
   );
 
-  // --- HUB ---
   return (
     <div style={{ backgroundColor: '#050505', color: '#0f0', minHeight: '100vh', padding: '20px', fontFamily: 'monospace', textAlign: 'center' }}>
       <header style={{ marginBottom: '40px', borderBottom: '2px solid #0f0', paddingBottom: '10px' }}>
         <h1 style={{ fontSize: '3rem', margin: '0' }}>quips</h1>
         <p>[ SECURE_GAME_HUB_v1 ]</p>
       </header>
-
       {!session ? (
         <section style={{ maxWidth: '400px', margin: '0 auto', background: '#111', padding: '40px', border: '1px solid #0f0' }}>
           <p style={{marginBottom:'20px'}}>IDENTIFY PLAYER</p>
-          <input id="handle" type="text" placeholder="name.bsky.social" style={inputStyle} />
-          <button onClick={login} style={mainBtn}>INITIATE_SESSION</button>
+          <input id="handle" type="text" placeholder="name.bsky.social" style={inpt} />
+          <button onClick={login} style={mBtn}>INITIATE_SESSION</button>
         </section>
       ) : (
         <main style={{ maxWidth: '800px', margin: '0 auto' }}>
@@ -83,12 +79,12 @@ export default function App() {
             <p>LOGGED_IN_AS: {session.did}</p>
           </div>
           <nav style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-            <button onClick={() => setView('bats')} style={btnStyle}>BATS</button>
-            <button onClick={() => setView('glyphs')} style={btnStyle}>GLYPHS</button>
-            <button onClick={() => setView('germ')} style={{...btnStyle, color:'#f0f', border:'1px solid #f0f'}}>GERM_NET</button>
-            <button style={btnStyle}>GAME_LOGS</button>
-            <button style={btnStyle}>ACHIEVEMENTS</button>
-            <button onClick={() => { localStorage.clear(); window.location.reload(); }} style={logoutBtn}>TERMINATE</button>
+            <button onClick={() => setView('bats')} style={btn}>BATS</button>
+            <button onClick={() => setView('glyphs')} style={btn}>GLYPHS</button>
+            <button onClick={() => setView('germ')} style={{...btn, color:'#f0f', border:'1px solid #f0f'}}>GERM_NET</button>
+            <button style={btn}>GAME_LOGS</button>
+            <button style={btn}>ACHIEVEMENTS</button>
+            <button onClick={() => { localStorage.clear(); window.location.reload(); }} style={lBtn}>TERMINATE</button>
           </nav>
         </main>
       )}
@@ -96,9 +92,9 @@ export default function App() {
   );
 }
 
-const fullScreen = { background: '#000', color: '#0f0', height: '100vh', display: 'flex', flexDirection: 'column' as 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace', textAlign: 'center' as 'center' };
-const inputStyle = { width: '80%', padding: '12px', background: '#000', color: '#0f0', border: '1px solid #0f0', marginBottom: '20px' };
-const mainBtn = { width: '90%', padding: '15px', background: '#0f0', color: '#000', fontWeight: 'bold', border: 'none', cursor: 'pointer' };
-const btnStyle = { padding: '25px', background: '#111', color: '#0f0', border: '1px solid #0f0', fontWeight: 'bold', cursor: 'pointer' };
-const logoutBtn = { padding: '25px', background: '#200', color: '#f00', border: '1px solid #f00', cursor: 'pointer' };
+const fs = { background: '#000', color: '#0f0', height: '100vh', display: 'flex', flexDirection: 'column' as 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace', textAlign: 'center' as 'center' };
+const inpt = { width: '80%', padding: '12px', background: '#000', color: '#0f0', border: '1px solid #0f0', marginBottom: '20px' };
+const mBtn = { width: '90%', padding: '15px', background: '#0f0', color: '#000', fontWeight: 'bold', border: 'none', cursor: 'pointer' };
+const btn = { padding: '25px', background: '#111', color: '#0f0', border: '1px solid #0f0', fontWeight: 'bold', cursor: 'pointer' };
+const lBtn = { padding: '25px', background: '#200', color: '#f00', border: '1px solid #f00', cursor: 'pointer' };
 const smallBtn = { padding: '10px 20px', background: '#0f0', color: '#000', border: 'none', cursor: 'pointer', marginTop: '20px' };
