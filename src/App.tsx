@@ -5,7 +5,7 @@ export default function App() {
   const [client, setClient] = useState<BrowserOAuthClient | null>(null);
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState('hub'); // 'hub', 'bats', 'glyphs', 'germ'
+  const [view, setView] = useState('hub');
 
   useEffect(() => {
     const init = async () => {
@@ -17,57 +17,63 @@ export default function App() {
         const result = await c.init();
         if (result?.session) setSession(result.session);
         setClient(c);
-      } catch (err) { console.error(err); } finally { setLoading(false); }
+      } catch (err) { console.error("OS_INIT_FAILURE", err); }
+      finally { setLoading(false); }
     };
     init();
   }, []);
 
   const login = async () => {
-    const handle = (document.getElementById('handle') as HTMLInputElement).value;
-    try { await client?.signIn(handle); } catch (err) { alert("System Error"); }
+    const h = (document.getElementById('handle') as HTMLInputElement).value;
+    try { await client?.signIn(h); } catch (e) { alert("INIT_SESSION_ERROR"); }
   };
 
-  if (loading) return <div style={fullScreen}>[ BOOTING QUIPS_OS... ]</div>;
+  if (loading) return (
+    <div style={{background:'#000', color:'#0f0', height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'monospace'}}>
+      [ BOOTING_QUIPS_OS... ]
+    </div>
+  );
 
   // --- SUB-PAGES ---
   if (view === 'bats') return (
     <div style={fullScreen}>
-      <h1>[ BATS ]</h1>
-      <p>Bilateral Analytics & Tracking System active.</p>
-      <button onClick={() => setView('hub')} style={smallBtn}>BACK_TO_HUB</button>
+      <h1 style={{color:'#0f0'}}>[ BATS ]</h1>
+      <p>Bilateral Analytics & Tracking System: ONLINE</p>
+      <button onClick={() => setView('hub')} style={smallBtn}>RETURN_TO_HUB</button>
     </div>
   );
 
   if (view === 'glyphs') return (
     <div style={fullScreen}>
-      <h1>[ GLYPHS ]</h1>
-      <p>Visual decryptors standing by.</p>
-      <button onClick={() => setView('hub')} style={smallBtn}>BACK_TO_HUB</button>
+      <h1 style={{color:'#0f0'}}>[ GLYPHS ]</h1>
+      <p>Visual Decryptors: STANDBY</p>
+      <button onClick={() => setView('hub')} style={smallBtn}>RETURN_TO_HUB</button>
     </div>
   );
 
   if (view === 'germ') return (
-    <div style={fullScreen}>
+    <div style={{...fullScreen, color:'#f0f'}}>
       <h1>[ GERM_NETWORK ]</h1>
-      <p style={{color:'#f0f'}}>ENCRYPTION_LAYER: ACTIVE</p>
-      <div style={{border:'1px solid #f0f', padding:'10px', margin:'20px 0'}}>
-        <p>> Incoming encrypted message stream...</p>
+      <div style={{border:'1px solid #f0f', padding:'20px', textAlign:'left'}}>
+        <p>> ENCRYPTION_LAYER: ARMORED</p>
+        <p>> STATUS: MONITORING_MESSAGES</p>
+        <p>> SOURCE: dev.quips.cc</p>
       </div>
-      <button onClick={() => setView('hub')} style={smallBtn}>BACK_TO_HUB</button>
+      <button onClick={() => setView('hub')} style={{...smallBtn, backgroundColor:'#f0f'}}>RETURN_TO_HUB</button>
     </div>
   );
 
-  // --- MAIN HUB ---
+  // --- HUB ---
   return (
     <div style={{ backgroundColor: '#050505', color: '#0f0', minHeight: '100vh', padding: '20px', fontFamily: 'monospace', textAlign: 'center' }}>
-      <header style={{ marginBottom: '40px', borderBottom: '2px solid #0f0' }}>
+      <header style={{ marginBottom: '40px', borderBottom: '2px solid #0f0', paddingBottom: '10px' }}>
         <h1 style={{ fontSize: '3rem', margin: '0' }}>quips</h1>
-        <p>[ SECURE_GAME_HUB ]</p>
+        <p>[ SECURE_GAME_HUB_v1 ]</p>
       </header>
 
       {!session ? (
-        <section style={cardStyle}>
-          <p>IDENTIFY PLAYER</p>
+        <section style={{ maxWidth: '400px', margin: '0 auto', background: '#111', padding: '40px', border: '1px solid #0f0' }}>
+          <p style={{marginBottom:'20px'}}>IDENTIFY PLAYER</p>
           <input id="handle" type="text" placeholder="name.bsky.social" style={inputStyle} />
           <button onClick={login} style={mainBtn}>INITIATE_SESSION</button>
         </section>
@@ -76,14 +82,13 @@ export default function App() {
           <div style={{ marginBottom: '20px', padding: '10px', border: '1px solid #0f0' }}>
             <p>LOGGED_IN_AS: {session.did}</p>
           </div>
-
           <nav style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <button onClick={() => setView('bats')} style={btnStyle}>BATS</button>
             <button onClick={() => setView('glyphs')} style={btnStyle}>GLYPHS</button>
-            <button onClick={() => setView('germ')} style={{...btnStyle, border:'1px solid #f0f', color:'#f0f'}}>GERM_NET</button>
+            <button onClick={() => setView('germ')} style={{...btnStyle, color:'#f0f', border:'1px solid #f0f'}}>GERM_NET</button>
             <button style={btnStyle}>GAME_LOGS</button>
             <button style={btnStyle}>ACHIEVEMENTS</button>
-            <button onClick={() => { localStorage.clear(); window.location.reload(); }} style={logoutBtn}>LOGOUT</button>
+            <button onClick={() => { localStorage.clear(); window.location.reload(); }} style={logoutBtn}>TERMINATE</button>
           </nav>
         </main>
       )}
@@ -91,9 +96,7 @@ export default function App() {
   );
 }
 
-// --- STYLES ---
-const fullScreen = { background: '#000', color: '#0f0', height: '100vh', display: 'flex', flexDirection: 'column' as 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace' };
-const cardStyle = { maxWidth: '400px', margin: '0 auto', background: '#111', padding: '40px', border: '1px solid #0f0' };
+const fullScreen = { background: '#000', color: '#0f0', height: '100vh', display: 'flex', flexDirection: 'column' as 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace', textAlign: 'center' as 'center' };
 const inputStyle = { width: '80%', padding: '12px', background: '#000', color: '#0f0', border: '1px solid #0f0', marginBottom: '20px' };
 const mainBtn = { width: '90%', padding: '15px', background: '#0f0', color: '#000', fontWeight: 'bold', border: 'none', cursor: 'pointer' };
 const btnStyle = { padding: '25px', background: '#111', color: '#0f0', border: '1px solid #0f0', fontWeight: 'bold', cursor: 'pointer' };
