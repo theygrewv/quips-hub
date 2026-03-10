@@ -20,29 +20,25 @@ export default function App() {
 
   const login = () => {
     const el = document.getElementById('h') as any;
-    if (c && el) c.signIn(el.value);
+    if (c && el?.value) c.signIn(el.value);
   };
 
-  const fs: any = { background: '#000', color: '#0f0', height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace', textAlign: 'center' };
-  const btn: any = { padding: '20px', background: '#111', color: '#0f0', border: '1px solid #0f0', margin: '5px', cursor: 'pointer', fontWeight: 'bold' };
-  const gBtn: any = { padding: '20px', background: '#111', color: '#f0f', border: '1px solid #f0f', margin: '5px', cursor: 'pointer', fontWeight: 'bold' };
-
   if (v === 'germ') return (
-    <div style={{...fs, color:'#f0f'}}>
+    <div style={{background:'#000',color:'#f0f',height:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',fontFamily:'monospace',textAlign:'center'}}>
       <h1>[ GERM_NET_P2P ]</h1>
-      <div style={{border:'1px solid #f0f', padding:'20px', width:'80%'}}>
+      <div style={{border:'1px solid #f0f',padding:'20px',width:'80%'}}>
         <p>> PROTOCOL: ARMORED_MSG</p>
         <p>> STATUS: P2P_DISCOVERY_ACTIVE</p>
       </div>
-      <button onClick={() => setV('hub')} style={{color:'#f0f', marginTop:'20px', background:'none', border:'1px solid #f0f', padding:'10px'}}>BACK</button>
+      <button onClick={() => setV('hub')} style={{color:'#f0f',marginTop:'20px',background:'none',border:'1px solid #f0f',padding:'10px'}}>BACK</button>
     </div>
   );
 
   if (v === 'bats') return (
-    <div style={fs}>
+    <div style={{background:'#000',color:'#0f0',height:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',fontFamily:'monospace',textAlign:'center'}}>
       <h1>[ BATS_OS ]</h1>
-      <p>Bilateral Analytics active.</p>
-      <button onClick={() => setV('hub')} style={{color:'#0f0', marginTop:'20px', background:'none', border:'1px solid #0f0', padding:'10px'}}>BACK</button>
+      <p>Analytics active.</p>
+      <button onClick={() => setV('hub')} style={{color:'#0f0',marginTop:'20px',background:'none',border:'1px solid #0f0',padding:'10px'}}>BACK</button>
     </div>
   );
 
@@ -52,16 +48,16 @@ export default function App() {
       {!sess ? (
         <div style={{ marginTop: '50px' }}>
           <p>[ IDENTIFY_PLAYER ]</p>
-          <input id="h" placeholder="handle" style={{ background: '#000', color: '#0f0', border: '1px solid #0f0', padding: '15px' }} />
+          <input id="h" placeholder="handle.bsky.social" style={{ background: '#000', color: '#0f0', border: '1px solid #0f0', padding: '15px' }} />
           <br /><br />
           <button onClick={login} style={{ background: '#0f0', color: '#000', padding: '15px 30px', fontWeight: 'bold', border: 'none' }}>START</button>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', maxWidth: '600px', margin: '0 auto' }}>
-          <button onClick={() => setV('bats')} style={btn}>BATS</button>
-          <button onClick={() => setV('hub')} style={btn}>GLYPHS</button>
-          <button onClick={() => setV('germ')} style={gBtn}>GERM_NET</button>
-          <button onClick={() => { localStorage.clear(); window.location.reload(); }} style={{ ...btn, color: '#f00', borderColor: '#f00' }}>EXIT</button>
+          <button onClick={() => setV('bats')} style={{padding:'20px',background:'#111',color:'#0f0',border:'1px solid #0f0'}}>BATS</button>
+          <button onClick={() => setV('hub')} style={{padding:'20px',background:'#111',color:'#0f0',border:'1px solid #0f0'}}>GLYPHS</button>
+          <button onClick={() => setV('germ')} style={{padding:'20px',background:'#111',color:'#f0f',border:'1px solid #f0f'}}>GERM_NET</button>
+          <button onClick={() => { localStorage.clear(); window.location.reload(); }} style={{padding:'20px',background:'#200',color:'#f00',border:'1px solid #f00'}}>EXIT</button>
         </div>
       )}
     </div>
