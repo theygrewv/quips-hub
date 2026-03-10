@@ -1,68 +1,57 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserOAuthClient } from '@atproto/oauth-client-browser';
 
-// We define the metadata right here so the app doesn't have to "fetch" it
-const metadata = {
-  client_id: "https://quips.cc/client-metadata.json",
-  client_name: "quips",
-  client_uri: "https://quips.cc",
-  redirect_uris: ["https://quips.cc/"],
-  grant_types: ["authorization_code", "refresh_token"],
-  response_types: ["code"],
-  scope: "atproto transition:generic",
-  token_endpoint_auth_method: "none",
-  application_type: "web",
-  dpop_bound_access_tokens: true
-};
-
-const client = new BrowserOAuthClient({
-  handleResolver: 'https://bsky.social',
-  clientMetadata: metadata as any, // This forces the app to use THIS data
-});
-
 export default function App() {
+  const [client, setClient] = useState<BrowserOAuthClient | null>(null);
   const [session, setSession] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    client.init()
-      .then((res) => {
-        if (res?.session) setSession(res.session);
-      })
-      .catch((err) => {
+    const init = async () => {
+      try {
+        // We manually create the client inside useEffect to ensure the page is ready
+        const c = new BrowserOAuthClient({
+          handleResolver: 'https://bsky.social',
+          clientMetadata: "https://quips.cc/client-metadata.json"
+        });
+        
+        const result = await c.init();
+        if (result?.session) setSession(result.session);
+        setClient(c);
+      } catch (err: any) {
         console.error(err);
         setError(err.message);
-      });
+      }
+    };
+    init();
   }, []);
 
   const login = async () => {
+    if (!client) return;
     const handle = (document.getElementById('handle') as HTMLInputElement).value;
-    try {
-      await client.signIn(handle);
-    } catch (err: any) {
-      setError(err.message);
-    }
+    await client.signIn(handle);
   };
 
-  return (
-    <div style={{ backgroundColor: '#121212', color: 'white', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif', textAlign: 'center' }}>
-      <h1>quips</h1>
-      <p style={{ opacity: 0.7 }}>Welcome home, Luminary.</p>
-      
-      {error && <p style={{ color: '#ff4444', padding: '10px' }}>Error: {error}</p>}
+  if (error) {
+    return (
+      <div style={{background:'#121212', color:'red', height:'100vh', padding:'20px'}}>
+        <h1>Metadata Error</h1>
+        <p>{error}</p>
+        <button onClick={() => window.location.reload()}>Retry Refresh</button>
+      </div>
+    );
+  }
 
+  return (
+    <div style={{ backgroundColor: '#121212', color: 'white', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif' }}>
+      <h1>quips</h1>
       {!session ? (
-        <div style={{ marginTop: '20px' }}>
-          <input id="handle" type="text" placeholder="name.bsky.social" style={{ padding: '12px', borderRadius: '8px', border: '1px solid #333', backgroundColor: '#222', color: 'white', marginRight: '10px' }} />
-          <button onClick={login} style={{ padding: '12px 24px', borderRadius: '8px', border: 'none', backgroundColor: '#fff', color: '#000', fontWeight: 'bold' }}>
-            Login
-          </button>
+        <div>
+          <input id="handle" type="text" placeholder="name.bsky.social" style={{ padding: '10px', borderRadius: '5px' }} />
+          <button onClick={login} style={{ marginLeft: '10px', padding: '10px 20px' }}>Login</button>
         </div>
       ) : (
-        <div style={{ marginTop: '20px' }}>
-          <p>Logged in as: <strong>{session.did}</strong></p>
-          <button onClick={() => { localStorage.clear(); window.location.reload(); }} style={{ padding: '10px 20px', borderRadius: '8px', border: '1px solid #444', backgroundColor: 'transparent', color: 'white' }}>Logout</button>
-        </div>
+        <p>Welcome, {session.did}</p>
       )}
     </div>
   );

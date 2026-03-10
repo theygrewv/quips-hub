@@ -2,7 +2,7 @@
   "client_id": "https://quips.cc/client-metadata.json",
   "client_name": "quips",
   "client_uri": "https://quips.cc",
-  "redirect_uris": ["https://quips.cc/"],
+  "redirect_uris": ["https://quips.cc", "https://quips.cc/"],
   "grant_types": ["authorization_code", "refresh_token"],
   "response_types": ["code"],
   "scope": "atproto transition:generic",
