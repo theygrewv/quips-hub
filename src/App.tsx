@@ -9,28 +9,34 @@ const styles = {
 };
 
 export default function App() {
-  const [client, setClient] = useState<BrowserOAuthClient | null>(null);
+  const [client, setClient] = useState<any>(null);
   const [sess, setSess] = useState<any>(null);
   const [view, setView] = useState('hub');
 
   useEffect(() => {
-    const c = new BrowserOAuthClient({
-      handleResolver: 'https://bsky.social',
-      clientMetadata: 'https://quips.cc/client-metadata.json'
-    });
-    c.init().then(r => { 
-      if (r?.session) setSess(r.session); 
-      setClient(c); 
-    }).catch(console.error);
+    const init = async () => {
+      try {
+        const c = new BrowserOAuthClient({
+          handleResolver: 'https://bsky.social',
+          clientMetadata: 'https://quips.cc/client-metadata.json'
+        });
+        const result: any = await c.init();
+        if (result?.session) setSess(result.session);
+        setClient(c);
+      } catch (e) {
+        console.error("BOOT_ERR", e);
+      }
+    };
+    init();
   }, []);
 
   const handleLogin = async () => {
     const input = document.getElementById('h') as HTMLInputElement | null;
-    if (client && input && input.value) {
+    if (client && input?.value) {
       try {
         await client.signIn(input.value);
       } catch (e) {
-        console.error("Login Error", e);
+        console.error("LOGIN_ERR", e);
       }
     }
   };
@@ -40,10 +46,18 @@ export default function App() {
       <h1>[ GERM_NETWORK_P2P ]</h1>
       <div style={{ border: '1px solid #f0f', padding: '20px', textAlign: 'left', maxWidth: '500px', margin: '0 auto' }}>
         <p>> PROTOCOL: ARMORED_MSG_v1</p>
-        <p>> STATE: P2P_DISCOVERY</p>
+        <p>> STATUS: P2P_DISCOVERY_ACTIVE</p>
         <p>> ENCRYPTION: AES-256-GCM</p>
       </div>
       <button onClick={() => setView('hub')} style={styles.gBtn}>RETURN_TO_HUB</button>
+    </div>
+  );
+
+  if (view === 'bats') return (
+    <div style={styles.hub}>
+      <h1>[ BATS_OS ]</h1>
+      <p>Bilateral Analytics & Tracking System: ONLINE</p>
+      <button onClick={() => setView('hub')} style={styles.btn}>RETURN_TO_HUB</button>
     </div>
   );
 
@@ -61,8 +75,8 @@ export default function App() {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <p style={{marginBottom:'20px'}}>PLAYER_CONNECTED: {sess.did}</p>
-          <button onClick={() => setView('hub')} style={styles.btn}>BATS</button>
+          <p style={{marginBottom:'20px', color: '#fff'}}>LOGGED_IN: {sess.did}</p>
+          <button onClick={() => setView('bats')} style={styles.btn}>BATS</button>
           <button onClick={() => setView('hub')} style={styles.btn}>GLYPHS</button>
           <button onClick={() => setView('germ')} style={styles.gBtn}>GERM_NET</button>
           <button onClick={() => { localStorage.clear(); window.location.reload(); }} style={{ ...styles.btn, color: '#f00', borderColor: '#f00' }}>
@@ -73,3 +87,5 @@ export default function App() {
     </div>
   );
 }
+	
+
