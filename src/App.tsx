@@ -2,15 +2,16 @@ import React, { useEffect, useState, CSSProperties } from 'react';
 import { BrowserOAuthClient, OAuthSession } from '@atproto/oauth-client-browser';
 import { Agent } from '@atproto/api';
 import nacl from 'tweetnacl';
-import { encodeBase64, decodeBase64, decodeUTF8 } from 'tweetnacl-util';
+import { encodeBase64, decodeBase64, decodeUTF8, encodeUTF8 } from 'tweetnacl-util';
 
 type ViewState = 'hub' | 'bats' | 'glyphs' | 'germ';
 
 interface ChatMsg {
-  id: number;
+  id: string;
   text: string;
   ciphertext: string;
   sender: 'me' | 'peer';
+  time: number;
 }
 
 export default function App() {
@@ -82,10 +83,10 @@ export default function App() {
     setGermStatus('SCANNING');
     try {
       const agent = new Agent(session);
-      // We use nacl.box for Curve25519 encryption keypairs
       const keypair = nacl.box.keyPair();
       
-      localStorage.setItem('germ_private_key', encodeBase64(keypair.secretKey));
+      // FIX 1: Save the private key specifically to THIS account's DID so it isn't overwritten
+      localStorage.setItem(`germ_priv_${session.did}`, encodeBase64(keypair.secretKey));
       const publicKeyBase64 = encodeBase64(keypair.publicKey);
 
       await agent.com.atproto.repo.putRecord({
@@ -96,15 +97,10 @@ export default function App() {
           $type: 'com.germnetwork.declaration',
           version: '1.0.0',
           currentKey: publicKeyBase64,
-          messageMe: {
-            messageMeUrl: 'https://quips.cc/germ#',
-            showButtonTo: 'everyone'
-          }
+          messageMe: { messageMeUrl: 'https://quips.cc/germ#', showButtonTo: 'everyone' }
         }
       });
-
       setGermStatus('READY');
-      alert("Encryption keys forged and published!");
     } catch (e) {
       setGermStatus('NO_RECORD');
     }
@@ -127,11 +123,11 @@ export default function App() {
 
       const didDocReq = await fetch(`https://plc.directory/${targetDid}`);
       const didDoc = await didDocReq.json();
-      
       const pdsService = didDoc.service?.find((s: any) => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer');
       if (!pdsService || !pdsService.serviceEndpoint) throw new Error("PDS not found");
 
-      const recordReq = await fetch(`${pdsService.serviceEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${targetDid}&collection=com.germnetwork.declaration&rkey=self`);
+      const pdsUrl = pdsService.serviceEndpoint;
+      const recordReq = await fetch(`${pdsUrl}/xrpc/com.atproto.repo.getRecord?repo=${targetDid}&collection=com.germnetwork.declaration&rkey=self`);
       if (!recordReq.ok) throw new Error("No keys found on PDS");
 
       const recordData = await recordReq.json();
@@ -139,68 +135,109 @@ export default function App() {
       if (!theirKey) throw new Error("Invalid record format");
 
       setPeerKey(theirKey);
-      setPeerStatus('PEER_FOUND_KEY_ACQUIRED');
+      setPeerStatus('PEER_FOUND_SYNCING_MESSAGES...');
+
+      // FIX 2: Fetch and decrypt history from BOTH servers
+      const storedPrivKey = localStorage.getItem(`germ_priv_${session.did}`);
+      if (storedPrivKey) {
+        const myPriv = decodeBase64(storedPrivKey);
+        const theirPub = decodeBase64(theirKey);
+        const allMsgs: ChatMsg[] = [];
+
+        // Fetch messages THEY sent to ME
+        try {
+          const theirMsgsReq = await fetch(`${pdsUrl}/xrpc/com.atproto.repo.listRecords?repo=${targetDid}&collection=com.germnetwork.message`);
+          const theirMsgsData = await theirMsgsReq.json();
+          for (const item of (theirMsgsData.records || [])) {
+            if (item.value.recipientDid === session.did) {
+              const nonce = decodeBase64(item.value.nonce);
+              const cipher = decodeBase64(item.value.ciphertext);
+              const dec = nacl.box.open(cipher, nonce, theirPub, myPriv);
+              if (dec) allMsgs.push({ id: item.uri, text: encodeUTF8(dec), ciphertext: item.value.ciphertext, sender: 'peer', time: new Date(item.value.createdAt).getTime() });
+            }
+          }
+        } catch (e) { console.log("No messages from peer"); }
+
+        // Fetch messages I sent to THEM
+        try {
+          const myMsgsReq = await agent.com.atproto.repo.listRecords({ repo: session.did, collection: 'com.germnetwork.message' });
+          for (const item of (myMsgsReq.data.records || [])) {
+            if (item.value.recipientDid === targetDid) {
+              const nonce = decodeBase64(item.value.nonce);
+              const cipher = decodeBase64(item.value.ciphertext);
+              // We can decrypt our own messages because ECDH creates a shared secret
+              const dec = nacl.box.open(cipher, nonce, theirPub, myPriv);
+              if (dec) allMsgs.push({ id: item.uri, text: encodeUTF8(dec), ciphertext: item.value.ciphertext, sender: 'me', time: new Date(item.value.createdAt).getTime() });
+            }
+          }
+        } catch (e) { console.log("No messages from me"); }
+
+        allMsgs.sort((a, b) => a.time - b.time);
+        setChatHistory(allMsgs);
+      }
+      setPeerStatus('CHANNEL_SECURE');
     } catch (e: any) {
       setPeerStatus(`ERR: ${e.message || 'PEER_NOT_FOUND'}`);
     }
   };
 
-  // --- THE ACTUAL ENCRYPTION PAYLOAD ---
   const handleSendMessage = async () => {
     if (!msgInput.trim() || !session || !peerKey || !peerDid) return;
+    const currentInput = msgInput;
+    setMsgInput(''); // Clear instantly for UI responsiveness
     
     try {
-      // 1. Fetch our private key from local storage
-      const storedPrivKey = localStorage.getItem('germ_private_key');
+      const storedPrivKey = localStorage.getItem(`germ_priv_${session.did}`);
       if (!storedPrivKey) throw new Error("Private key missing. Please regenerate your keys.");
       
-      // 2. Decode the keys from Base64 to raw bytes
       const mySecretKey = decodeBase64(storedPrivKey);
       const theirPublicKey = decodeBase64(peerKey);
       
-      // 3. Prepare the text and generate a secure, random nonce
-      const msgUint8 = decodeUTF8(msgInput);
+      const msgUint8 = decodeUTF8(currentInput);
       const nonce = nacl.randomBytes(nacl.box.nonceLength);
-      
-      // 4. THE VAULT: Encrypt the message!
       const encryptedMessage = nacl.box(msgUint8, nonce, theirPublicKey, mySecretKey);
       
-      // 5. Encode the ciphertext back to Base64 so we can upload it
       const ciphertextBase64 = encodeBase64(encryptedMessage);
       const nonceBase64 = encodeBase64(nonce);
 
-      // 6. Transmit the armored payload to the AT Protocol
       const agent = new Agent(session);
-      const timestampRkey = Date.now().toString(); // Use timestamp as record key
+      const timestampRkey = Date.now().toString(); 
+      const createdAt = new Date().toISOString();
       
       await agent.com.atproto.repo.putRecord({
         repo: session.did,
-        collection: 'com.germnetwork.message', // Standard Lexicon for messages
+        collection: 'com.germnetwork.message',
         rkey: timestampRkey,
         record: {
           $type: 'com.germnetwork.message',
           recipientDid: peerDid,
           ciphertext: ciphertextBase64,
           nonce: nonceBase64,
-          createdAt: new Date().toISOString()
+          createdAt: createdAt
         }
       });
 
-      // 7. Render it to the UI
       const newMsg: ChatMsg = {
-        id: Date.now(),
-        text: msgInput,
+        id: timestampRkey,
+        text: currentInput,
         ciphertext: ciphertextBase64,
-        sender: 'me'
+        sender: 'me',
+        time: Date.now()
       };
-
-      setChatHistory([...chatHistory, newMsg]);
-      setMsgInput(''); 
-      
+      setChatHistory(prev => [...prev, newMsg]);
     } catch (e) {
       console.error("Transmission failed:", e);
-      alert("Failed to encrypt and transmit message. See console.");
+      alert("Failed to encrypt and transmit message.");
+      setMsgInput(currentInput); // Put text back on failure
     }
+  };
+
+  const safeLogout = () => {
+    // FIX 3: Safe logout. Destroys session data but KEEPS your private germ keys.
+    Object.keys(localStorage).forEach(k => {
+      if (!k.startsWith('germ_priv_')) localStorage.removeItem(k);
+    });
+    window.location.reload();
   };
 
   const fs: CSSProperties = { background: '#000', color: '#0f0', height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace', textAlign: 'center' };
@@ -228,7 +265,7 @@ export default function App() {
         <div style={{marginTop: '20px', width: '85%', maxWidth: '500px', display: 'flex', flexDirection: 'column', flexGrow: 1}}>
           <div style={{border: '1px solid #f0f', borderBottom: 'none', padding: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
             <span style={{fontSize: '0.8rem'}}>TARGET: {peerHandle}</span>
-            <button onClick={() => setPeerKey(null)} style={{background: 'none', border: '1px solid #f0f', color: '#f0f', cursor: 'pointer', padding: '5px'}}>DISCONNECT</button>
+            <button onClick={() => { setPeerKey(null); setChatHistory([]); }} style={{background: 'none', border: '1px solid #f0f', color: '#f0f', cursor: 'pointer', padding: '5px'}}>DISCONNECT</button>
           </div>
           
           <div style={{border: '1px solid #f0f', height: '300px', overflowY: 'auto', padding: '15px', display: 'flex', flexDirection: 'column', gap: '15px', background: '#050005'}}>
@@ -265,7 +302,7 @@ export default function App() {
       {!session ? (
         <div><p>[ IDENTIFY_PLAYER ]</p><br/><input id="h" placeholder="handle.bsky.social" style={{ background: '#000', color: '#0f0', border: '1px solid #0f0', padding: '15px', width: '250px' }} /><br/><br/><button onClick={login} style={{ background: '#0f0', color: '#000', padding: '15px 30px', fontWeight: 'bold', border: 'none' }}>INITIATE</button></div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}><p style={{marginBottom: '20px', wordBreak: 'break-all'}}>PLAYER_DID: {session.did}</p><button onClick={() => setView('bats')} style={btn}>BATS</button><button onClick={() => setView('glyphs')} style={btn}>GLYPHS</button><button onClick={() => setView('germ')} style={{...btn, color: '#f0f', borderColor: '#f0f'}}>GERM_NET</button><button onClick={() => { localStorage.clear(); window.location.reload(); }} style={{...btn, color: '#f00', borderColor: '#f00'}}>LOGOUT</button></div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}><p style={{marginBottom: '20px', wordBreak: 'break-all'}}>PLAYER_DID: {session.did}</p><button onClick={() => setView('bats')} style={btn}>BATS</button><button onClick={() => setView('glyphs')} style={btn}>GLYPHS</button><button onClick={() => setView('germ')} style={{...btn, color: '#f0f', borderColor: '#f0f'}}>GERM_NET</button><button onClick={safeLogout} style={{...btn, color: '#f00', borderColor: '#f00'}}>LOGOUT</button></div>
       )}
     </div>
   );
