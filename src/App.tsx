@@ -1,6 +1,8 @@
 import React, { useEffect, useState, CSSProperties } from 'react';
 import { BrowserOAuthClient, OAuthSession } from '@atproto/oauth-client-browser';
 import { Agent } from '@atproto/api';
+import nacl from 'tweetnacl';
+import { encodeBase64 } from 'tweetnacl-util';
 
 type ViewState = 'hub' | 'bats' | 'glyphs' | 'germ';
 
@@ -70,10 +72,18 @@ export default function App() {
     setGermStatus('SCANNING');
     try {
       const agent = new Agent(session);
-      const mockKeyBytes = new Uint8Array(32);
-      window.crypto.getRandomValues(mockKeyBytes);
-      const mockKeyBase64 = btoa(String.fromCharCode.apply(null, Array.from(mockKeyBytes)));
 
+      // 1. Generate a REAL ed25519 keypair
+      const keypair = nacl.sign.keyPair();
+      
+      // 2. We must store the PRIVATE key locally (never send this to the network)
+      // In a full app, you'd encrypt this in localStorage, but for now we just save it
+      localStorage.setItem('germ_private_key', encodeBase64(keypair.secretKey));
+
+      // 3. Format the PUBLIC key for the AT Protocol
+      const publicKeyBase64 = encodeBase64(keypair.publicKey);
+
+      // 4. Publish the real public key to the declaration record
       await agent.com.atproto.repo.putRecord({
         repo: session.did,
         collection: 'com.germnetwork.declaration',
@@ -81,15 +91,18 @@ export default function App() {
         record: {
           $type: 'com.germnetwork.declaration',
           version: '1.0.0',
-          currentKey: mockKeyBase64,
+          currentKey: publicKeyBase64,
           messageMe: {
             messageMeUrl: 'https://quips.cc/germ#',
             showButtonTo: 'everyone'
           }
         }
       });
+
       setGermStatus('READY');
+      alert("Real ed25519 keys generated and published!");
     } catch (e) {
+      console.error("Failed to publish real keys", e);
       setGermStatus('NO_RECORD');
     }
   };
@@ -153,7 +166,18 @@ export default function App() {
           
           {peerStatus && <p style={{marginTop: '15px', fontSize: '0.9rem', wordBreak: 'break-all'}}>&gt; {peerStatus}</p>}
           {peerKey && <p style={{marginTop: '5px', fontSize: '0.8rem', opacity: 0.8, wordBreak: 'break-all'}}>&gt; KEY: {peerKey}</p>}
-        </div>
+                 {peerKey && (
+            <div style={{marginTop: '20px', width: '100%'}}>
+              <p style={{marginBottom: '5px', fontSize: '0.9rem'}}>&gt; COMPOSE_ARMORED_MESSAGE</p>
+              <textarea 
+                placeholder="Enter payload..." 
+                style={{ width: '90%', height: '80px', background: '#000', color: '#0f0', border: '1px solid #0f0', padding: '10px', fontFamily: 'monospace', resize: 'none' }}
+              />
+              <button style={{...btn, width: '90%', padding: '10px', marginTop: '10px'}}>ENCRYPT & TRANSMIT</button>
+            </div>
+          )}
+
+ </div>
       )}
 
       {germStatus === 'NO_RECORD' && (
