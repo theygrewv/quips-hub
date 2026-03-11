@@ -27,8 +27,10 @@ export default function App() {
   const [chatHistory, setChatHistory] = useState<ChatMsg[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [activeThreads, setActiveThreads] = useState<Thread[]>([]);
+  
+  // New Restore State
+  const [restoreKeyInput, setRestoreKeyInput] = useState('');
 
-  // --- NATIVE BACK SWIPE LISTENER ---
   useEffect(() => {
     const handlePopState = () => {
       if (isSearching) setIsSearching(false);
@@ -79,7 +81,7 @@ export default function App() {
       const res = await agent.com.atproto.repo.getRecord({ repo: currentSession.did, collection: 'com.germnetwork.declaration', rkey: 'self' });
       if (res.data) {
         if (localStorage.getItem('germ_priv_' + currentSession.did)) setGermStatus('READY');
-        else setGermStatus('NO_RECORD');
+        else setGermStatus('NO_RECORD'); // Needs recovery or regen
       }
     } catch (e) { setGermStatus('NO_RECORD'); }
   };
@@ -104,6 +106,23 @@ export default function App() {
       });
       setGermStatus('READY');
     } catch (e) { setGermStatus('NO_RECORD'); }
+  };
+
+  // --- RECOVERY FUNCTIONS ---
+  const restoreGermKeys = () => {
+    if (!session || !restoreKeyInput.trim()) return;
+    localStorage.setItem(`germ_priv_${session.did}`, restoreKeyInput.trim());
+    setGermStatus('READY');
+    alert("Keys restored from backup!");
+  };
+
+  const copyBackupKey = () => {
+    if (!session) return;
+    const key = localStorage.getItem(`germ_priv_${session.did}`);
+    if (key) {
+      navigator.clipboard.writeText(key);
+      alert("Private key copied to clipboard! Save this somewhere safe.");
+    }
   };
 
   const openThread = async (targetHandleOrDid: string) => {
@@ -143,9 +162,7 @@ export default function App() {
       const theirKey = recordData.value?.currentKey;
       if (!theirKey) throw new Error("Invalid record format");
 
-      // Push history state for back swipe
       window.history.pushState({ view: 'chat' }, '');
-      
       setPeerKey(theirKey); setIsSearching(false); setPeerStatus('');
       saveThread(targetDid, displayHandle, profileData?.displayName, profileData?.avatar);
 
@@ -210,27 +227,39 @@ export default function App() {
     window.location.reload();
   };
 
-  // --- UI STYLES (PIXEL 9 OPTIMIZED) ---
+  // --- UI STYLES ---
   const mBg = '#141218', mSurf = '#2b2930', mPri = '#d0bcff', mOnPri = '#381e72', mSec = '#4a4458', mOnSec = '#e8def8';
   const appCont: CSSProperties = { background: mBg, color: '#e6e0e9', height: '100dvh', fontFamily: 'system-ui, sans-serif', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column' };
   const fab: CSSProperties = { position: 'absolute', bottom: 'env(safe-area-inset-bottom, 24px)', right: '24px', width: '64px', height: '64px', borderRadius: '20px', backgroundColor: mPri, color: mOnPri, display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '32px', cursor: 'pointer', border: 'none', zIndex: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.4)' };
   
-  // Notice the massive top padding to dodge the Pixel 9 Activity Bar
-  const topBar: CSSProperties = { paddingTop: 'max(env(safe-area-inset-top), 48px)', paddingBottom: '16px', paddingLeft: '20px', paddingRight: '20px', display: 'flex', alignItems: 'center', gap: '16px', background: mBg, zIndex: 5, borderBottom: `1px solid ${mSurf}` };
+  const topBar: CSSProperties = { paddingTop: 'max(env(safe-area-inset-top, 48px), 48px)', paddingBottom: '16px', paddingLeft: '20px', paddingRight: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: mBg, zIndex: 5, borderBottom: `1px solid ${mSurf}` };
 
   if (view === 'germ') return (
     <div style={appCont}>
       <div style={topBar}>
-        <button onClick={() => { window.history.back(); }} style={{background: 'none', border: 'none', color: '#e6e0e9', fontSize: '24px', cursor: 'pointer', padding: '0 8px'}}>←</button>
-        {peerKey && activePeerAvatar && <img src={activePeerAvatar} alt="pfp" style={{width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover'}} />}
-        <h2 style={{margin: 0, fontSize: '1.2rem', fontWeight: 500}}>{peerKey ? activePeerName : 'Messages'}</h2>
+        <div style={{display: 'flex', alignItems: 'center', gap: '16px'}}>
+          <button onClick={() => { window.history.back(); }} style={{background: 'none', border: 'none', color: '#e6e0e9', fontSize: '24px', cursor: 'pointer', padding: '0 8px'}}>←</button>
+          {peerKey && activePeerAvatar && <img src={activePeerAvatar} alt="pfp" style={{width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover'}} />}
+          <h2 style={{margin: 0, fontSize: '1.2rem', fontWeight: 500}}>{peerKey ? activePeerName : 'Messages'}</h2>
+        </div>
+        {!peerKey && germStatus === 'READY' && (
+          <button onClick={copyBackupKey} style={{background: mSurf, border: 'none', color: mPri, padding: '8px 12px', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer'}}>🔑 Backup Key</button>
+        )}
       </div>
 
       {germStatus === 'NO_RECORD' && (
-        <div style={{padding: '24px', textAlign: 'center', marginTop: '40px'}}>
-          <div style={{background: mSurf, padding: '32px', borderRadius: '28px'}}>
-            <h3 style={{marginTop: 0}}>Encryption Required</h3>
+        <div style={{padding: '24px', textAlign: 'center', marginTop: '40px', overflowY: 'auto'}}>
+          <div style={{background: mSurf, padding: '32px', borderRadius: '28px', marginBottom: '24px'}}>
+            <h3 style={{marginTop: 0}}>New to Germ?</h3>
+            <p style={{opacity: 0.8, fontSize: '0.9rem', marginBottom: '24px'}}>Generate keys to enable secure messaging.</p>
             <button onClick={generateGermKeys} style={{background: mPri, color: mOnPri, padding: '16px 32px', borderRadius: '100px', border: 'none', fontWeight: 600, width: '100%'}}>Generate Keys</button>
+          </div>
+          
+          <div style={{background: mBg, border: `1px solid ${mSurf}`, padding: '32px', borderRadius: '28px'}}>
+            <h3 style={{marginTop: 0, fontSize: '1.1rem'}}>Lost your keys?</h3>
+            <p style={{opacity: 0.8, fontSize: '0.85rem', marginBottom: '16px'}}>If you cleared your browser cache, paste your backup key below to regain access to your encryption lock.</p>
+            <input value={restoreKeyInput} onChange={(e) => setRestoreKeyInput(e.target.value)} placeholder="Paste Private Key (Base64)" style={{ width: '100%', boxSizing: 'border-box', background: mSurf, color: '#e6e0e9', border: 'none', padding: '12px', borderRadius: '12px', marginBottom: '16px', fontSize: '0.9rem' }} />
+            <button onClick={restoreGermKeys} disabled={!restoreKeyInput.trim()} style={{background: mSec, color: mOnSec, padding: '12px', borderRadius: '100px', border: 'none', fontWeight: 600, width: '100%'}}>Restore Existing Key</button>
           </div>
         </div>
       )}
@@ -297,13 +326,13 @@ export default function App() {
     </div>
   );
 
-  const rFs: CSSProperties = { background: '#000', color: '#0f0', height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace' };
+const rFs: CSSProperties = { background: '#000', color: '#0f0', height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace' };
   const rBtn: CSSProperties = { padding: '20px', background: '#111', color: '#0f0', border: '1px solid #0f0', margin: '10px', cursor: 'pointer', fontWeight: 'bold', width: '220px' };
 
   if (view === 'bats') return (<div style={rFs}><h1>[ BATS_OS ]</h1><p>Bilateral Analytics</p><button onClick={() => setView('hub')} style={rBtn}>RETURN</button></div>);
   if (view === 'glyphs') return (<div style={rFs}><h1>[ GLYPHS_DECRYPTOR ]</h1><p>Visual Patterns</p><button onClick={() => setView('hub')} style={rBtn}>RETURN</button></div>);
 
-return (
+  return (
     <div style={{ background: '#050505', color: '#0f0', minHeight: '100vh', padding: '20px', fontFamily: 'monospace', textAlign: 'center' }}>
       <h1 style={{ fontSize: '3.5rem', borderBottom: '2px solid #0f0', marginBottom: '40px' }}>quips</h1>
       {!session ? (
