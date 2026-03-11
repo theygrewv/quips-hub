@@ -5,7 +5,7 @@ const DEFAULT_GAMES = [
     id: 'quips-glyphs', 
     title: 'Glyphs', 
     uri: 'https://glyphs.quips.cc', 
-    thumb: 'https://images.unsplash.com/photo-1627398242454-45a1465c2479?w=400&q=80', 
+    thumb: '/shakasign.png', 
     author: 'v.skydrops.app' 
   },
   { 
@@ -14,13 +14,6 @@ const DEFAULT_GAMES = [
     uri: 'https://2048.blue', 
     thumb: 'https://images.unsplash.com/photo-1614680376573-3e4e1ef4142a?w=400&q=80', 
     author: '2048.blue' 
-  },
-  { 
-    id: 'atproto-ttt', 
-    title: 'Tic-Tac-Toe', 
-    uri: 'https://tictactoe.firehose.games', 
-    thumb: 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=400&q=80', 
-    author: 'firehose.games' 
   }
 ];
 
@@ -43,7 +36,6 @@ export default function App() {
         }, '*');
       }
     };
-
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, [user]);
@@ -59,41 +51,37 @@ export default function App() {
 
   return (
     <div style={{ backgroundColor: '#000', color: 'white', minHeight: '100vh', padding: '20px', fontFamily: 'sans-serif' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px', padding: '20px', backgroundColor: '#1f1f1f', borderRadius: '20px' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', padding: '15px', backgroundColor: '#1f1f1f', borderRadius: '15px' }}>
         <div>
-          <h2 style={{ margin: 0 }}>{user ? user.displayName : 'Welcome'}</h2>
-          <small style={{ color: '#3b82f6' }}>{user ? `@${user.handle}` : 'Please Login'}</small>
+          <h3 style={{ margin: 0 }}>{user ? user.displayName : 'Welcome'}</h3>
+          <small style={{ color: '#3b82f6' }}>{user ? `@${user.handle}` : 'Sign in to play'}</small>
         </div>
         {!user ? (
-          <button onClick={login} style={{ padding: '10px 20px', borderRadius: '20px', background: '#3b82f6', color: 'white', border: 'none', fontWeight: 'bold' }}>Login</button>
+          <button onClick={login} style={{ padding: '8px 16px', borderRadius: '20px', background: '#3b82f6', color: 'white', border: 'none' }}>Login</button>
         ) : (
-          <img src={user.avatar} style={{ width: '60px', height: '60px', borderRadius: '50%', border: '2px solid white' }} alt="PFP" />
+          <img src={user.avatar} style={{ width: '50px', height: '50px', borderRadius: '50%', border: '2px solid white' }} alt="PFP" />
         )}
       </header>
 
-      <div style={{ backgroundColor: '#aaa', padding: '30px', borderRadius: '30px', color: '#000' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <h2 style={{ margin: 0 }}>Network Games</h2>
-          <button style={{ padding: '10px 20px', borderRadius: '20px', background: '#0055ff', color: 'white', border: 'none', fontWeight: 'bold' }}>Scan ATProto</button>
-        </div>
-
+      <div style={{ backgroundColor: '#e2e8f0', padding: '20px', borderRadius: '25px', color: '#000' }}>
+        <h2 style={{ marginTop: 0 }}>Native Games</h2>
         {!activeGame ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '15px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
             {DEFAULT_GAMES.map(game => (
-              <div key={game.id} onClick={() => setActiveGame(game)} style={{ background: '#fff', borderRadius: '20px', overflow: 'hidden', cursor: 'pointer' }}>
-                <img src={game.thumb} style={{ width: '100%', height: '100px', objectFit: 'cover' }} alt={game.title} />
+              <div key={game.id} onClick={() => setActiveGame(game)} style={{ background: '#fff', borderRadius: '15px', overflow: 'hidden', cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
+                <img src={game.thumb} style={{ width: '100%', height: '80px', objectFit: 'cover' }} alt={game.title} />
                 <div style={{ padding: '10px' }}>
                   <div style={{ fontWeight: 'bold', fontSize: '14px' }}>{game.title}</div>
-                  <div style={{ fontSize: '11px', color: '#0055ff' }}>by @{game.author}</div>
+                  <div style={{ fontSize: '11px', color: '#3b82f6' }}>@{game.author}</div>
                 </div>
               </div>
             ))}
           </div>
         ) : (
-          <div style={{ position: 'fixed', inset: '10px', background: '#000', borderRadius: '25px', overflow: 'hidden', display: 'flex', flexDirection: 'column', zIndex: 100 }}>
-            <div style={{ background: '#1f1f1f', padding: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ color: 'white', fontWeight: 'bold' }}>{activeGame.title}</span>
-              <button onClick={() => setActiveGame(null)} style={{ background: 'red', border: 'none', color: 'white', borderRadius: '50%', width: '30px', height: '30px', cursor: 'pointer' }}>✕</button>
+          <div style={{ position: 'fixed', inset: '0', background: '#000', display: 'flex', flexDirection: 'column', zIndex: 100 }}>
+             <div style={{ background: '#1f1f1f', padding: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: 'white' }}>{activeGame.title}</span>
+              <button onClick={() => setActiveGame(null)} style={{ background: 'none', border: 'none', color: 'white', fontSize: '24px' }}>✕</button>
             </div>
             <iframe ref={iframeRef} src={activeGame.uri} style={{ flex: 1, border: 'none' }} title={activeGame.title} />
           </div>
