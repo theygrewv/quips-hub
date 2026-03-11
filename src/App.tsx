@@ -402,6 +402,21 @@ export default function App() {
     <div style={{ background: '#050505', color: '#0f0', minHeight: '100vh', padding: '20px', fontFamily: 'monospace', textAlign: 'center' }}>
       <h1 style={{ fontSize: '3.5rem', borderBottom: '2px solid #0f0', marginBottom: '40px' }}>quips</h1>
       {!session ? (
-        <div><p>[ IDENTIFY_PLAYER ]</p><br/><input id="h" placeholder="handle.bsky.social" style={{ background: '#000', color: '#0f0', border: '1px solid #0f0', padding: '15px', width: '250px' }} /><br/><br/><button onClick={login} style={{ background: '#0f0', color: '#000', padding: '15px 30px', fontWeight: 'bold', border: 'none' }}>INITIATE</button></div>
+        <div>
+          <p>[ IDENTIFY_PLAYER ]</p><br/>
+          <input id="h" placeholder="handle.bsky.social" style={{ background: '#000', color: '#0f0', border: '1px solid #0f0', padding: '15px', width: '250px' }} /><br/><br/>
+          <button onClick={login} style={{ background: '#0f0', color: '#000', padding: '15px 30px', fontWeight: 'bold', border: 'none' }}>INITIATE</button>
+        </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}><p style={{marginBottom: '20px', wordBreak: 'break-all'}}>PLAYER_DID: {session.did}</p><button onClick={() => setView('bats')} style={retroBtn}>BATS</button><button onClick={() => setView('glyphs')} style={retroBtn}>GLYPHS</button><button onClick={() => setView('germ')} style={{...retroBtn, color: '#f0f', borderColor: '#f0f'}}>GERM_NET<
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <p style={{marginBottom: '20px', wordBreak: 'break-all'}}>PLAYER_DID: {session.did}</p>
+          <button onClick={() => setView('bats')} style={retroBtn}>BATS</button>
+          <button onClick={() => setView('glyphs')} style={retroBtn}>GLYPHS</button>
+          <button onClick={() => setView('germ')} style={{...retroBtn, color: '#f0f', borderColor: '#f0f'}}>GERM_NET</button>
+          <button onClick={safeLogout} style={{...retroBtn, color: '#f00', borderColor: '#f00'}}>LOGOUT</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
