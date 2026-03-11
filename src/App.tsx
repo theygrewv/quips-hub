@@ -2,11 +2,10 @@ import React, { useEffect, useState, CSSProperties } from 'react';
 import { BrowserOAuthClient, OAuthSession } from '@atproto/oauth-client-browser';
 import { Agent } from '@atproto/api';
 import nacl from 'tweetnacl';
-import { encodeBase64 } from 'tweetnacl-util';
+import { encodeBase64, decodeBase64, decodeUTF8 } from 'tweetnacl-util';
 
 type ViewState = 'hub' | 'bats' | 'glyphs' | 'germ';
 
-// Defining our chat message structure
 interface ChatMsg {
   id: number;
   text: string;
@@ -23,8 +22,8 @@ export default function App() {
   const [peerHandle, setPeerHandle] = useState('');
   const [peerStatus, setPeerStatus] = useState('');
   const [peerKey, setPeerKey] = useState<string | null>(null);
+  const [peerDid, setPeerDid] = useState<string | null>(null);
   
-  // Chat States
   const [msgInput, setMsgInput] = useState('');
   const [chatHistory, setChatHistory] = useState<ChatMsg[]>([]);
 
@@ -83,7 +82,8 @@ export default function App() {
     setGermStatus('SCANNING');
     try {
       const agent = new Agent(session);
-      const keypair = nacl.sign.keyPair();
+      // We use nacl.box for Curve25519 encryption keypairs
+      const keypair = nacl.box.keyPair();
       
       localStorage.setItem('germ_private_key', encodeBase64(keypair.secretKey));
       const publicKeyBase64 = encodeBase64(keypair.publicKey);
@@ -104,6 +104,7 @@ export default function App() {
       });
 
       setGermStatus('READY');
+      alert("Encryption keys forged and published!");
     } catch (e) {
       setGermStatus('NO_RECORD');
     }
@@ -113,33 +114,28 @@ export default function App() {
     if (!session || !peerHandle) return;
     setPeerStatus('SEARCHING_NETWORK...');
     setPeerKey(null);
-    setChatHistory([]); // Clear chat when finding a new peer
+    setPeerDid(null);
+    setChatHistory([]);
     try {
       const agent = new Agent(session);
-      
       let targetDid = peerHandle;
       if (!peerHandle.startsWith('did:')) {
         const res = await agent.resolveHandle({ handle: peerHandle });
         targetDid = res.data.did;
       }
+      setPeerDid(targetDid);
 
-      setPeerStatus('LOCATING_PEER_PDS...');
-      
       const didDocReq = await fetch(`https://plc.directory/${targetDid}`);
       const didDoc = await didDocReq.json();
       
       const pdsService = didDoc.service?.find((s: any) => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer');
       if (!pdsService || !pdsService.serviceEndpoint) throw new Error("PDS not found");
 
-      const pdsUrl = pdsService.serviceEndpoint;
-      setPeerStatus('FETCHING_DECLARATION...');
-
-      const recordReq = await fetch(`${pdsUrl}/xrpc/com.atproto.repo.getRecord?repo=${targetDid}&collection=com.germnetwork.declaration&rkey=self`);
+      const recordReq = await fetch(`${pdsService.serviceEndpoint}/xrpc/com.atproto.repo.getRecord?repo=${targetDid}&collection=com.germnetwork.declaration&rkey=self`);
       if (!recordReq.ok) throw new Error("No keys found on PDS");
 
       const recordData = await recordReq.json();
       const theirKey = recordData.value?.currentKey;
-      
       if (!theirKey) throw new Error("Invalid record format");
 
       setPeerKey(theirKey);
@@ -149,22 +145,62 @@ export default function App() {
     }
   };
 
-  // --- THE NEW CHAT LOGIC ---
-  const handleSendMessage = () => {
-    if (!msgInput.trim()) return;
+  // --- THE ACTUAL ENCRYPTION PAYLOAD ---
+  const handleSendMessage = async () => {
+    if (!msgInput.trim() || !session || !peerKey || !peerDid) return;
     
-    // Simulate the encrypted payload visually for the UI
-    const simulatedCiphertext = "0x" + Array.from(msgInput).map(c => c.charCodeAt(0).toString(16)).join('') + Math.random().toString(16).substring(2, 8);
-    
-    const newMsg: ChatMsg = {
-      id: Date.now(),
-      text: msgInput,
-      ciphertext: simulatedCiphertext,
-      sender: 'me'
-    };
+    try {
+      // 1. Fetch our private key from local storage
+      const storedPrivKey = localStorage.getItem('germ_private_key');
+      if (!storedPrivKey) throw new Error("Private key missing. Please regenerate your keys.");
+      
+      // 2. Decode the keys from Base64 to raw bytes
+      const mySecretKey = decodeBase64(storedPrivKey);
+      const theirPublicKey = decodeBase64(peerKey);
+      
+      // 3. Prepare the text and generate a secure, random nonce
+      const msgUint8 = decodeUTF8(msgInput);
+      const nonce = nacl.randomBytes(nacl.box.nonceLength);
+      
+      // 4. THE VAULT: Encrypt the message!
+      const encryptedMessage = nacl.box(msgUint8, nonce, theirPublicKey, mySecretKey);
+      
+      // 5. Encode the ciphertext back to Base64 so we can upload it
+      const ciphertextBase64 = encodeBase64(encryptedMessage);
+      const nonceBase64 = encodeBase64(nonce);
 
-    setChatHistory([...chatHistory, newMsg]);
-    setMsgInput(''); // Clear the input box
+      // 6. Transmit the armored payload to the AT Protocol
+      const agent = new Agent(session);
+      const timestampRkey = Date.now().toString(); // Use timestamp as record key
+      
+      await agent.com.atproto.repo.putRecord({
+        repo: session.did,
+        collection: 'com.germnetwork.message', // Standard Lexicon for messages
+        rkey: timestampRkey,
+        record: {
+          $type: 'com.germnetwork.message',
+          recipientDid: peerDid,
+          ciphertext: ciphertextBase64,
+          nonce: nonceBase64,
+          createdAt: new Date().toISOString()
+        }
+      });
+
+      // 7. Render it to the UI
+      const newMsg: ChatMsg = {
+        id: Date.now(),
+        text: msgInput,
+        ciphertext: ciphertextBase64,
+        sender: 'me'
+      };
+
+      setChatHistory([...chatHistory, newMsg]);
+      setMsgInput(''); 
+      
+    } catch (e) {
+      console.error("Transmission failed:", e);
+      alert("Failed to encrypt and transmit message. See console.");
+    }
   };
 
   const fs: CSSProperties = { background: '#000', color: '#0f0', height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace', textAlign: 'center' };
@@ -182,18 +218,12 @@ export default function App() {
       {germStatus === 'READY' && !peerKey && (
         <div style={{marginTop: '20px', border: '1px dashed #f0f', padding: '15px', width: '85%', maxWidth: '500px'}}>
           <p style={{marginBottom: '10px'}}>&gt; PEER_DISCOVERY</p>
-          <input 
-            placeholder="target handle or did" 
-            value={peerHandle}
-            onChange={(e) => setPeerHandle(e.target.value)}
-            style={{ background: '#000', color: '#f0f', border: '1px solid #f0f', padding: '10px', width: '90%', marginBottom: '10px', fontFamily: 'monospace' }} 
-          />
+          <input placeholder="target handle or did" value={peerHandle} onChange={(e) => setPeerHandle(e.target.value)} style={{ background: '#000', color: '#f0f', border: '1px solid #f0f', padding: '10px', width: '90%', marginBottom: '10px', fontFamily: 'monospace' }} />
           <button onClick={locatePeer} style={{...btn, padding: '10px', width: '90%', color: '#000', background: '#f0f', borderColor: '#f0f', margin: '0'}}>LOCATE_PEER</button>
           {peerStatus && <p style={{marginTop: '15px', fontSize: '0.9rem', wordBreak: 'break-all'}}>&gt; {peerStatus}</p>}
         </div>
       )}
 
-      {/* --- THE NEW CHAT UI --- */}
       {peerKey && (
         <div style={{marginTop: '20px', width: '85%', maxWidth: '500px', display: 'flex', flexDirection: 'column', flexGrow: 1}}>
           <div style={{border: '1px solid #f0f', borderBottom: 'none', padding: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
@@ -209,56 +239,33 @@ export default function App() {
                 <div style={{ background: msg.sender === 'me' ? '#002200' : '#220022', border: `1px solid ${msg.sender === 'me' ? '#0f0' : '#f0f'}`, padding: '10px', borderRadius: '4px' }}>
                   <p style={{color: msg.sender === 'me' ? '#0f0' : '#f0f', margin: 0}}>{msg.text}</p>
                 </div>
-                <p style={{fontSize: '0.6rem', opacity: 0.5, marginTop: '4px', wordBreak: 'break-all'}}>ENC: {msg.ciphertext}</p>
+                <p style={{fontSize: '0.6rem', opacity: 0.5, marginTop: '4px', wordBreak: 'break-all', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'}}>ENC: {msg.ciphertext}</p>
               </div>
             ))}
           </div>
 
           <div style={{border: '1px solid #f0f', borderTop: 'none', padding: '10px', display: 'flex', gap: '10px'}}>
-            <textarea 
-              value={msgInput}
-              onChange={(e) => setMsgInput(e.target.value)}
-              placeholder="Enter payload..." 
-              style={{ flexGrow: 1, height: '50px', background: '#000', color: '#0f0', border: '1px solid #0f0', padding: '10px', fontFamily: 'monospace', resize: 'none' }}
-            />
+            <textarea value={msgInput} onChange={(e) => setMsgInput(e.target.value)} placeholder="Enter payload..." style={{ flexGrow: 1, height: '50px', background: '#000', color: '#0f0', border: '1px solid #0f0', padding: '10px', fontFamily: 'monospace', resize: 'none' }} />
             <button onClick={handleSendMessage} style={{...btn, width: '80px', margin: 0, padding: '0', background: '#0f0', color: '#000'}}>SEND</button>
           </div>
         </div>
       )}
 
-      {germStatus === 'NO_RECORD' && (
-        <button onClick={generateGermKeys} style={{...btn, background: '#f0f', color: '#000', borderColor: '#f0f', marginTop: '20px'}}>GENERATE_KEYS</button>
-      )}
-      
+      {germStatus === 'NO_RECORD' && <button onClick={generateGermKeys} style={{...btn, background: '#f0f', color: '#000', borderColor: '#f0f', marginTop: '20px'}}>GENERATE_KEYS</button>}
       {!peerKey && <button onClick={() => setView('hub')} style={{...btn, color: '#f0f', borderColor: '#f0f', marginTop: '20px'}}>RETURN</button>}
     </div>
   );
 
-  if (view === 'bats') return (
-    <div style={fs}><h1>[ BATS_OS ]</h1><p>Bilateral Analytics</p><button onClick={() => setView('hub')} style={btn}>RETURN</button></div>
-  );
-
-  if (view === 'glyphs') return (
-    <div style={fs}><h1>[ GLYPHS_DECRYPTOR ]</h1><p>Visual Patterns</p><button onClick={() => setView('hub')} style={btn}>RETURN</button></div>
-  );
+  if (view === 'bats') return (<div style={fs}><h1>[ BATS_OS ]</h1><p>Bilateral Analytics</p><button onClick={() => setView('hub')} style={btn}>RETURN</button></div>);
+  if (view === 'glyphs') return (<div style={fs}><h1>[ GLYPHS_DECRYPTOR ]</h1><p>Visual Patterns</p><button onClick={() => setView('hub')} style={btn}>RETURN</button></div>);
 
   return (
     <div style={{ background: '#050505', color: '#0f0', minHeight: '100vh', padding: '20px', fontFamily: 'monospace', textAlign: 'center' }}>
       <h1 style={{ fontSize: '3.5rem', borderBottom: '2px solid #0f0', marginBottom: '40px' }}>quips</h1>
       {!session ? (
-        <div>
-          <p>[ IDENTIFY_PLAYER ]</p><br/>
-          <input id="h" placeholder="handle.bsky.social" style={{ background: '#000', color: '#0f0', border: '1px solid #0f0', padding: '15px', width: '250px' }} /><br/><br/>
-          <button onClick={login} style={{ background: '#0f0', color: '#000', padding: '15px 30px', fontWeight: 'bold', border: 'none' }}>INITIATE</button>
-        </div>
+        <div><p>[ IDENTIFY_PLAYER ]</p><br/><input id="h" placeholder="handle.bsky.social" style={{ background: '#000', color: '#0f0', border: '1px solid #0f0', padding: '15px', width: '250px' }} /><br/><br/><button onClick={login} style={{ background: '#0f0', color: '#000', padding: '15px 30px', fontWeight: 'bold', border: 'none' }}>INITIATE</button></div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-          <p style={{marginBottom: '20px', wordBreak: 'break-all'}}>PLAYER_DID: {session.did}</p>
-          <button onClick={() => setView('bats')} style={btn}>BATS</button>
-          <button onClick={() => setView('glyphs')} style={btn}>GLYPHS</button>
-          <button onClick={() => setView('germ')} style={{...btn, color: '#f0f', borderColor: '#f0f'}}>GERM_NET</button>
-          <button onClick={() => { localStorage.clear(); window.location.reload(); }} style={{...btn, color: '#f00', borderColor: '#f00'}}>LOGOUT</button>
-        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}><p style={{marginBottom: '20px', wordBreak: 'break-all'}}>PLAYER_DID: {session.did}</p><button onClick={() => setView('bats')} style={btn}>BATS</button><button onClick={() => setView('glyphs')} style={btn}>GLYPHS</button><button onClick={() => setView('germ')} style={{...btn, color: '#f0f', borderColor: '#f0f'}}>GERM_NET</button><button onClick={() => { localStorage.clear(); window.location.reload(); }} style={{...btn, color: '#f00', borderColor: '#f00'}}>LOGOUT</button></div>
       )}
     </div>
   );
