@@ -154,9 +154,9 @@ const generateGermKeys = async () => {
         // --- FETCH BLUESKY DMs ONLY ---
         const proxyOpts = { headers: { 'atproto-proxy': 'did:web:api.bsky.chat' } };
         try {
-          const convoRes = await agent.api.chat.bsky.convo.getConvoForMembers({ members: [targetDid] }, proxyOpts);
+          const convoRes = await (agent.api as any).chat.bsky.convo.getConvoForMembers({ members: [targetDid] }, proxyOpts);
           if (convoRes.data && convoRes.data.convo) {
-            const bskyMsgs = await agent.api.chat.bsky.convo.getMessages({ convoId: convoRes.data.convo.id }, proxyOpts);
+            const bskyMsgs = await (agent.api as any).chat.bsky.convo.getMessages({ convoId: convoRes.data.convo.id }, proxyOpts);
             for (const m of bskyMsgs.data.messages) {
               if ((m as any).$type === 'chat.bsky.convo.defs#messageView') {
                 allMsgs.push({ id: (m as any).id, text: (m as any).text, sender: (m as any).sender.did === session.did ? 'me' : 'peer', time: new Date((m as any).sentAt).getTime(), protocol: 'bsky' });
@@ -231,11 +231,11 @@ const generateGermKeys = async () => {
         const proxyOpts = { headers: { 'atproto-proxy': 'did:web:api.bsky.chat' } };
         let convoId;
         try {
-          const convoRes = await agent.api.chat.bsky.convo.getConvoForMembers({ members: [peerDid] }, proxyOpts);
+          const convoRes = await (agent.api as any).chat.bsky.convo.getConvoForMembers({ members: [peerDid] }, proxyOpts);
           convoId = convoRes.data.convo.id;
         } catch (e) { throw new Error("Could not initiate Bluesky Convo."); }
         
-        await agent.api.chat.bsky.convo.sendMessage({ convoId, message: { text: currentInput } }, proxyOpts);
+        await (agent.api as any).chat.bsky.convo.sendMessage({ convoId, message: { text: currentInput } }, proxyOpts);
         setChatHistory(prev => [...prev, { id: ts.toString(), text: currentInput, sender: 'me', time: ts, protocol: 'bsky' }]);
 
       } else if (activeProtocol === 'germ') {
