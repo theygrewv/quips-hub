@@ -3,10 +3,10 @@
   "client_name": "Quips",
   "client_uri": "https://quips.cc",
   "logo_uri": "https://quips.cc/logo192.png",
-  "redirect_uris": ["https://quips.cc", "https://quips.cc/"],
+  "redirect_uris": ["https://quips.cc/"],
   "grant_types": ["authorization_code", "refresh_token"],
   "response_types": ["code"],
-  "scope": "atproto transition:generic transition:chat.bsky",
+  "scope": "atproto transition:generic",
   "token_endpoint_auth_method": "none",
   "dpop_bound_access_tokens": true
 }
