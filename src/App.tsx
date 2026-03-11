@@ -6,7 +6,8 @@ import { encodeBase64, decodeBase64, decodeUTF8, encodeUTF8 } from 'tweetnacl-ut
 
 type ViewState = 'hub' | 'bats' | 'glyphs' | 'germ';
 
-interface ChatMsg { id: string; text: string; ciphertext: string; sender: 'me' | 'peer'; time: number; }
+// NEW: Added protocol tracking to messages
+interface ChatMsg { id: string; text: string; ciphertext?: string; sender: 'me' | 'peer'; time: number; protocol: 'germ' | 'bsky'; }
 interface Thread { did: string; handle: string; displayName?: string; avatar?: string; updated: number; }
 
 export default function App() {
@@ -27,9 +28,10 @@ export default function App() {
   const [chatHistory, setChatHistory] = useState<ChatMsg[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [activeThreads, setActiveThreads] = useState<Thread[]>([]);
-  
-  // New Restore State
   const [restoreKeyInput, setRestoreKeyInput] = useState('');
+  
+  // NEW: Protocol Send Toggle State
+  const [sendProtocol, setSendProtocol] = useState<'germ' | 'bsky'>('germ');
 
   useEffect(() => {
     const handlePopState = () => {
@@ -81,7 +83,7 @@ export default function App() {
       const res = await agent.com.atproto.repo.getRecord({ repo: currentSession.did, collection: 'com.germnetwork.declaration', rkey: 'self' });
       if (res.data) {
         if (localStorage.getItem('germ_priv_' + currentSession.did)) setGermStatus('READY');
-        else setGermStatus('NO_RECORD'); // Needs recovery or regen
+        else setGermStatus('NO_RECORD');
       }
     } catch (e) { setGermStatus('NO_RECORD'); }
   };
@@ -108,7 +110,6 @@ export default function App() {
     } catch (e) { setGermStatus('NO_RECORD'); }
   };
 
-  // --- RECOVERY FUNCTIONS ---
   const restoreGermKeys = () => {
     if (!session || !restoreKeyInput.trim()) return;
     localStorage.setItem(`germ_priv_${session.did}`, restoreKeyInput.trim());
@@ -149,77 +150,125 @@ export default function App() {
         displayHandle = profileData.handle || displayHandle;
       } catch (e) { setActivePeerName(displayHandle); }
 
-      const didDocReq = await fetch(`https://plc.directory/${targetDid}`);
-      const didDoc = await didDocReq.json();
-      const pdsService = didDoc.service?.find((s: any) => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer');
-      if (!pdsService || !pdsService.serviceEndpoint) throw new Error("PDS not found");
+      const allMsgs: ChatMsg[] = [];
 
-      const pdsUrl = pdsService.serviceEndpoint;
-      const recordReq = await fetch(`${pdsUrl}/xrpc/com.atproto.repo.getRecord?repo=${targetDid}&collection=com.germnetwork.declaration&rkey=self`);
-      if (!recordReq.ok) throw new Error("No encryption keys found for this user");
+      // --- 1. FETCH BLUESKY DMs ---
+      try {
+        const convoRes = await agent.api.chat.bsky.convo.getConvoForMembers({ members: [targetDid] });
+        if (convoRes.data && convoRes.data.convo) {
+          const bskyMsgs = await agent.api.chat.bsky.convo.getMessages({ convoId: convoRes.data.convo.id });
+          for (const m of bskyMsgs.data.messages) {
+            if ((m as any).$type === 'chat.bsky.convo.defs#messageView') {
+              allMsgs.push({
+                id: (m as any).id,
+                text: (m as any).text,
+                sender: (m as any).sender.did === session.did ? 'me' : 'peer',
+                time: new Date((m as any).sentAt).getTime(),
+                protocol: 'bsky'
+              });
+            }
+          }
+        }
+      } catch (e) { console.log("No Bluesky DMs or proxy not configured."); }
 
-      const recordData = await recordReq.json();
-      const theirKey = recordData.value?.currentKey;
-      if (!theirKey) throw new Error("Invalid record format");
+      // --- 2. FETCH GERM P2P MESSAGES ---
+      try {
+        const didDocReq = await fetch(`https://plc.directory/${targetDid}`);
+        const didDoc = await didDocReq.json();
+        const pdsService = didDoc.service?.find((s: any) => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer');
+        
+        if (pdsService && pdsService.serviceEndpoint) {
+          const pdsUrl = pdsService.serviceEndpoint;
+          const recordReq = await fetch(`${pdsUrl}/xrpc/com.atproto.repo.getRecord?repo=${targetDid}&collection=com.germnetwork.declaration&rkey=self`);
+          
+          if (recordReq.ok) {
+            const recordData = await recordReq.json();
+            const theirKey = recordData.value?.currentKey;
+            
+            if (theirKey) {
+              setPeerKey(theirKey); 
+              const storedPrivKey = localStorage.getItem(`germ_priv_${session.did}`);
+              if (storedPrivKey) {
+                const myPriv = decodeBase64(storedPrivKey);
+                const theirPub = decodeBase64(theirKey);
+
+                try {
+                  const theirMsgsReq = await fetch(`${pdsUrl}/xrpc/com.atproto.repo.listRecords?repo=${targetDid}&collection=com.germnetwork.message`);
+                  const theirMsgsData = await theirMsgsReq.json();
+                  for (const item of (theirMsgsData.records || [])) {
+                    if ((item.value as any).recipientDid === session.did) {
+                      const dec = nacl.box.open(decodeBase64((item.value as any).ciphertext), decodeBase64((item.value as any).nonce), theirPub, myPriv);
+                      if (dec) allMsgs.push({ id: item.uri, text: encodeUTF8(dec), ciphertext: (item.value as any).ciphertext, sender: 'peer', time: new Date((item.value as any).createdAt).getTime(), protocol: 'germ' });
+                    }
+                  }
+                } catch (e) {}
+
+                try {
+                  const myMsgsReq = await agent.com.atproto.repo.listRecords({ repo: session.did, collection: 'com.germnetwork.message' });
+                  for (const item of (myMsgsReq.data.records || [])) {
+                    if ((item.value as any).recipientDid === targetDid) {
+                      const dec = nacl.box.open(decodeBase64((item.value as any).ciphertext), decodeBase64((item.value as any).nonce), theirPub, myPriv);
+                      if (dec) allMsgs.push({ id: item.uri, text: encodeUTF8(dec), ciphertext: (item.value as any).ciphertext, sender: 'me', time: new Date((item.value as any).createdAt).getTime(), protocol: 'germ' });
+                    }
+                  }
+                } catch (e) {}
+              }
+            }
+          }
+        }
+      } catch (e) { console.log("Germ PDS lookup skipped or failed."); }
+
+      // Sort unified inbox and render
+      allMsgs.sort((a, b) => a.time - b.time);
+      setChatHistory(allMsgs);
 
       window.history.pushState({ view: 'chat' }, '');
-      setPeerKey(theirKey); setIsSearching(false); setPeerStatus('');
+      setIsSearching(false); setPeerStatus('');
       saveThread(targetDid, displayHandle, profileData?.displayName, profileData?.avatar);
-
-      const storedPrivKey = localStorage.getItem(`germ_priv_${session.did}`);
-      if (storedPrivKey) {
-        const myPriv = decodeBase64(storedPrivKey);
-        const theirPub = decodeBase64(theirKey);
-        const allMsgs: ChatMsg[] = [];
-
-        try {
-          const theirMsgsReq = await fetch(`${pdsUrl}/xrpc/com.atproto.repo.listRecords?repo=${targetDid}&collection=com.germnetwork.message`);
-          const theirMsgsData = await theirMsgsReq.json();
-          for (const item of (theirMsgsData.records || [])) {
-            if ((item.value as any).recipientDid === session.did) {
-              const dec = nacl.box.open(decodeBase64((item.value as any).ciphertext), decodeBase64((item.value as any).nonce), theirPub, myPriv);
-              if (dec) allMsgs.push({ id: item.uri, text: encodeUTF8(dec), ciphertext: (item.value as any).ciphertext, sender: 'peer', time: new Date((item.value as any).createdAt).getTime() });
-            }
-          }
-        } catch (e) {}
-
-        try {
-          const myMsgsReq = await agent.com.atproto.repo.listRecords({ repo: session.did, collection: 'com.germnetwork.message' });
-          for (const item of (myMsgsReq.data.records || [])) {
-            if ((item.value as any).recipientDid === targetDid) {
-              const dec = nacl.box.open(decodeBase64((item.value as any).ciphertext), decodeBase64((item.value as any).nonce), theirPub, myPriv);
-              if (dec) allMsgs.push({ id: item.uri, text: encodeUTF8(dec), ciphertext: (item.value as any).ciphertext, sender: 'me', time: new Date((item.value as any).createdAt).getTime() });
-            }
-          }
-        } catch (e) {}
-
-        allMsgs.sort((a, b) => a.time - b.time);
-        setChatHistory(allMsgs);
-      }
+      
     } catch (e: any) { setPeerStatus(`${e.message || 'User not found'}`); }
   };
 
   const handleSendMessage = async () => {
-    if (!msgInput.trim() || !session || !peerKey || !peerDid) return;
+    if (!msgInput.trim() || !session || !peerDid) return;
     const currentInput = msgInput; setMsgInput(''); 
-    try {
-      const storedPrivKey = localStorage.getItem(`germ_priv_${session.did}`);
-      if (!storedPrivKey) throw new Error("Private key missing.");
-      
-      const nonce = nacl.randomBytes(nacl.box.nonceLength);
-      const encryptedMessage = nacl.box(decodeUTF8(currentInput), nonce, decodeBase64(peerKey), decodeBase64(storedPrivKey));
-      const ciphertextBase64 = encodeBase64(encryptedMessage);
-      
-      const agent = new Agent(session);
-      const timestampRkey = Date.now().toString(); 
-      await agent.com.atproto.repo.putRecord({
-        repo: session.did, collection: 'com.germnetwork.message', rkey: timestampRkey,
-        record: { $type: 'com.germnetwork.message', recipientDid: peerDid, ciphertext: ciphertextBase64, nonce: encodeBase64(nonce), createdAt: new Date().toISOString() }
-      });
+    const agent = new Agent(session);
+    const ts = Date.now();
 
-      setChatHistory(prev => [...prev, { id: timestampRkey, text: currentInput, ciphertext: ciphertextBase64, sender: 'me', time: Date.now() }]);
+    try {
+      if (sendProtocol === 'bsky') {
+        // --- SEND STANDARD BLUESKY DM ---
+        let convoId;
+        try {
+          const convoRes = await agent.api.chat.bsky.convo.getConvoForMembers({ members: [peerDid] });
+          convoId = convoRes.data.convo.id;
+        } catch (e) { throw new Error("Could not initiate Bluesky Convo"); }
+        
+        await agent.api.chat.bsky.convo.sendMessage({ convoId, message: { text: currentInput } });
+        setChatHistory(prev => [...prev, { id: ts.toString(), text: currentInput, sender: 'me', time: ts, protocol: 'bsky' }]);
+
+      } else {
+        // --- SEND ENCRYPTED GERM MESSAGE ---
+        if (!peerKey) throw new Error("Peer has no Germ encryption keys.");
+        const storedPrivKey = localStorage.getItem(`germ_priv_${session.did}`);
+        if (!storedPrivKey) throw new Error("Private key missing.");
+        
+        const nonce = nacl.randomBytes(nacl.box.nonceLength);
+        const encryptedMessage = nacl.box(decodeUTF8(currentInput), nonce, decodeBase64(peerKey), decodeBase64(storedPrivKey));
+        const ciphertextBase64 = encodeBase64(encryptedMessage);
+        
+        await agent.com.atproto.repo.putRecord({
+          repo: session.did, collection: 'com.germnetwork.message', rkey: ts.toString(),
+          record: { $type: 'com.germnetwork.message', recipientDid: peerDid, ciphertext: ciphertextBase64, nonce: encodeBase64(nonce), createdAt: new Date(ts).toISOString() }
+        });
+
+        setChatHistory(prev => [...prev, { id: ts.toString(), text: currentInput, ciphertext: ciphertextBase64, sender: 'me', time: ts, protocol: 'germ' }]);
+      }
       saveThread(peerDid, activePeerName, activePeerName, activePeerAvatar); 
-    } catch (e) { setMsgInput(currentInput); }
+    } catch (e: any) { 
+      alert(e.message || "Transmission failed.");
+      setMsgInput(currentInput); 
+    }
   };
 
   const safeLogout = () => {
@@ -229,9 +278,13 @@ export default function App() {
 
   // --- UI STYLES ---
   const mBg = '#141218', mSurf = '#2b2930', mPri = '#d0bcff', mOnPri = '#381e72', mSec = '#4a4458', mOnSec = '#e8def8';
+  
+  // Protocol Colors
+  const bskyBlueMe = '#0085FF', bskyBlueThem = '#003366';
+  const germGreenMe = '#00c853', germGreenThem = '#003300';
+
   const appCont: CSSProperties = { background: mBg, color: '#e6e0e9', height: '100dvh', fontFamily: 'system-ui, sans-serif', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column' };
   const fab: CSSProperties = { position: 'absolute', bottom: 'env(safe-area-inset-bottom, 24px)', right: '24px', width: '64px', height: '64px', borderRadius: '20px', backgroundColor: mPri, color: mOnPri, display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '32px', cursor: 'pointer', border: 'none', zIndex: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.4)' };
-  
   const topBar: CSSProperties = { paddingTop: 'max(env(safe-area-inset-top, 48px), 48px)', paddingBottom: '16px', paddingLeft: '20px', paddingRight: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: mBg, zIndex: 5, borderBottom: `1px solid ${mSurf}` };
 
   if (view === 'germ') return (
@@ -239,10 +292,10 @@ export default function App() {
       <div style={topBar}>
         <div style={{display: 'flex', alignItems: 'center', gap: '16px'}}>
           <button onClick={() => { window.history.back(); }} style={{background: 'none', border: 'none', color: '#e6e0e9', fontSize: '24px', cursor: 'pointer', padding: '0 8px'}}>←</button>
-          {peerKey && activePeerAvatar && <img src={activePeerAvatar} alt="pfp" style={{width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover'}} />}
-          <h2 style={{margin: 0, fontSize: '1.2rem', fontWeight: 500}}>{peerKey ? activePeerName : 'Messages'}</h2>
+          {peerDid && activePeerAvatar && <img src={activePeerAvatar} alt="pfp" style={{width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover'}} />}
+          <h2 style={{margin: 0, fontSize: '1.2rem', fontWeight: 500}}>{peerDid ? activePeerName : 'Messages'}</h2>
         </div>
-        {!peerKey && germStatus === 'READY' && (
+        {!peerDid && germStatus === 'READY' && (
           <button onClick={copyBackupKey} style={{background: mSurf, border: 'none', color: mPri, padding: '8px 12px', borderRadius: '8px', fontSize: '0.9rem', cursor: 'pointer'}}>🔑 Backup Key</button>
         )}
       </div>
@@ -254,17 +307,16 @@ export default function App() {
             <p style={{opacity: 0.8, fontSize: '0.9rem', marginBottom: '24px'}}>Generate keys to enable secure messaging.</p>
             <button onClick={generateGermKeys} style={{background: mPri, color: mOnPri, padding: '16px 32px', borderRadius: '100px', border: 'none', fontWeight: 600, width: '100%'}}>Generate Keys</button>
           </div>
-          
           <div style={{background: mBg, border: `1px solid ${mSurf}`, padding: '32px', borderRadius: '28px'}}>
             <h3 style={{marginTop: 0, fontSize: '1.1rem'}}>Lost your keys?</h3>
-            <p style={{opacity: 0.8, fontSize: '0.85rem', marginBottom: '16px'}}>If you cleared your browser cache, paste your backup key below to regain access to your encryption lock.</p>
+            <p style={{opacity: 0.8, fontSize: '0.85rem', marginBottom: '16px'}}>Paste your backup key below to regain access.</p>
             <input value={restoreKeyInput} onChange={(e) => setRestoreKeyInput(e.target.value)} placeholder="Paste Private Key (Base64)" style={{ width: '100%', boxSizing: 'border-box', background: mSurf, color: '#e6e0e9', border: 'none', padding: '12px', borderRadius: '12px', marginBottom: '16px', fontSize: '0.9rem' }} />
             <button onClick={restoreGermKeys} disabled={!restoreKeyInput.trim()} style={{background: mSec, color: mOnSec, padding: '12px', borderRadius: '100px', border: 'none', fontWeight: 600, width: '100%'}}>Restore Existing Key</button>
           </div>
         </div>
       )}
 
-      {germStatus === 'READY' && !peerKey && (
+{germStatus === 'READY' && !peerDid && (
         <div style={{flexGrow: 1, position: 'relative', display: 'flex', flexDirection: 'column', overflow: 'hidden'}}>
           <div style={{flexGrow: 1, overflowY: 'auto', padding: '16px', paddingBottom: '100px'}}>
             {activeThreads.length === 0 ? (
@@ -297,28 +349,45 @@ export default function App() {
         </div>
       )}
 
-      {peerKey && (
+      {peerDid && (
         <div style={{display: 'flex', flexDirection: 'column', flexGrow: 1, overflow: 'hidden'}}>
           <div style={{flexGrow: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '8px'}}>
-            {chatHistory.length === 0 && <p style={{textAlign: 'center', opacity: 0.5, fontSize: '0.85rem', marginTop: '20px'}}>Secure channel established.</p>}
+            {chatHistory.length === 0 && <p style={{textAlign: 'center', opacity: 0.5, fontSize: '0.85rem', marginTop: '20px'}}>Channels open. Begin transmission.</p>}
             {chatHistory.map((msg, i) => {
               const isMe = msg.sender === 'me';
-              const isGrouped = i > 0 && chatHistory[i-1].sender === msg.sender;
+              const isGrouped = i > 0 && chatHistory[i-1].sender === msg.sender && chatHistory[i-1].protocol === msg.protocol;
               const timeStr = new Date(msg.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              
+              // Protocol Colors
+              const bubbleBg = msg.protocol === 'germ' ? (isMe ? germGreenMe : germGreenThem) : (isMe ? bskyBlueMe : bskyBlueThem);
+              const bubbleColor = msg.protocol === 'germ' ? (isMe ? '#000' : '#0f0') : '#fff';
+
               return (
                 <div key={msg.id} style={{alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '80%', marginTop: isGrouped ? '2px' : '12px'}}>
-                  <div style={{ background: isMe ? mPri : mSec, color: isMe ? mOnPri : mOnSec, borderRadius: isMe ? `${isGrouped ? '4px' : '20px'} 20px 20px 20px` : `20px ${isGrouped ? '4px' : '20px'} 20px 20px`, padding: '8px 12px', lineHeight: '1.4' }}>
+                  <div style={{ background: bubbleBg, color: bubbleColor, borderRadius: isMe ? `${isGrouped ? '4px' : '20px'} 20px 20px 20px` : `20px ${isGrouped ? '4px' : '20px'} 20px 20px`, padding: '8px 12px', lineHeight: '1.4' }}>
                     <div style={{fontSize: '1rem'}}>{msg.text}</div>
-                    <div style={{fontSize: '0.65rem', opacity: 0.7, textAlign: 'right', marginTop: '4px'}}>{timeStr}</div>
+                    <div style={{fontSize: '0.65rem', opacity: 0.7, textAlign: 'right', marginTop: '4px', display: 'flex', justifyContent: 'space-between', gap: '10px'}}>
+                      <span>{msg.protocol === 'germ' ? '🛡️ GERM' : '🦋 BSKY'}</span>
+                      <span>{timeStr}</span>
+                    </div>
                   </div>
                 </div>
               );
             })}
           </div>
           <div style={{padding: '12px 20px', paddingBottom: 'max(env(safe-area-inset-bottom), 24px)', background: mBg}}>
+            
+            {/* PROTOCOL TOGGLE */}
+            <div style={{display: 'flex', justifyContent: 'center', marginBottom: '8px'}}>
+              <div style={{background: mSurf, borderRadius: '100px', display: 'flex', padding: '4px'}}>
+                <button onClick={() => setSendProtocol('germ')} style={{background: sendProtocol === 'germ' ? germGreenMe : 'transparent', color: sendProtocol === 'germ' ? '#000' : '#e6e0e9', border: 'none', padding: '6px 16px', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 'bold', transition: 'all 0.2s'}}>🛡️ GERM</button>
+                <button onClick={() => setSendProtocol('bsky')} style={{background: sendProtocol === 'bsky' ? bskyBlueMe : 'transparent', color: sendProtocol === 'bsky' ? '#fff' : '#e6e0e9', border: 'none', padding: '6px 16px', borderRadius: '100px', fontSize: '0.8rem', fontWeight: 'bold', transition: 'all 0.2s'}}>🦋 BSKY</button>
+              </div>
+            </div>
+
             <div style={{display: 'flex', gap: '8px', alignItems: 'flex-end', background: mSurf, borderRadius: '28px', padding: '6px 6px 6px 16px'}}>
-              <textarea value={msgInput} onChange={(e) => setMsgInput(e.target.value)} placeholder="Message" style={{ flexGrow: 1, maxHeight: '100px', background: 'transparent', color: '#e6e0e9', border: 'none', padding: '8px 0', resize: 'none', outline: 'none', fontFamily: 'inherit' }} />
-              <button onClick={handleSendMessage} disabled={!msgInput.trim()} style={{background: msgInput.trim() ? mPri : '#4a4458', color: msgInput.trim() ? mOnPri : '#1c1b1f', border: 'none', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0}}>↑</button>
+              <textarea value={msgInput} onChange={(e) => setMsgInput(e.target.value)} placeholder={`Message via ${sendProtocol === 'germ' ? 'Germ' : 'Bluesky'}...`} style={{ flexGrow: 1, maxHeight: '100px', background: 'transparent', color: '#e6e0e9', border: 'none', padding: '8px 0', resize: 'none', outline: 'none', fontFamily: 'inherit' }} />
+              <button onClick={handleSendMessage} disabled={!msgInput.trim()} style={{background: msgInput.trim() ? (sendProtocol === 'germ' ? germGreenMe : bskyBlueMe) : '#4a4458', color: msgInput.trim() ? (sendProtocol === 'germ' ? '#000' : '#fff') : '#1c1b1f', border: 'none', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0}}>↑</button>
             </div>
           </div>
         </div>
@@ -326,7 +395,7 @@ export default function App() {
     </div>
   );
 
-const rFs: CSSProperties = { background: '#000', color: '#0f0', height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace' };
+  const rFs: CSSProperties = { background: '#000', color: '#0f0', height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace' };
   const rBtn: CSSProperties = { padding: '20px', background: '#111', color: '#0f0', border: '1px solid #0f0', margin: '10px', cursor: 'pointer', fontWeight: 'bold', width: '220px' };
 
   if (view === 'bats') return (<div style={rFs}><h1>[ BATS_OS ]</h1><p>Bilateral Analytics</p><button onClick={() => setView('hub')} style={rBtn}>RETURN</button></div>);
