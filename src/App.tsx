@@ -11,6 +11,7 @@ interface ChatMsg { id: string; text: string; ciphertext?: string; sender: 'me' 
 interface Thread { did: string; handle: string; displayName?: string; avatar?: string; updated: number; protocol: 'germ' | 'bsky'; }
 
 export default function App() {
+  const safeLogout = () => { Object.keys(localStorage).forEach(k => { if (!k.startsWith("germ_priv_") && !k.startsWith("germ_threads_")) localStorage.removeItem(k); }); window.location.reload(); };
   const [client, setClient] = useState<BrowserOAuthClient | null>(null);
   const [session, setSession] = useState<OAuthSession | null>(null);
   const [view, setView] = useState<ViewState>('hub');
