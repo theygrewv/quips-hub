@@ -1,6 +1,6 @@
 import React, { useEffect, useState, CSSProperties } from 'react';
 import { BrowserOAuthClient, OAuthSession } from '@atproto/oauth-client-browser';
-import { Agent } from '@atproto/api'; // <-- The new API import
+import { Agent } from '@atproto/api';
 
 type ViewState = 'hub' | 'bats' | 'glyphs' | 'germ';
 
@@ -8,7 +8,12 @@ export default function App() {
   const [client, setClient] = useState<BrowserOAuthClient | null>(null);
   const [session, setSession] = useState<OAuthSession | null>(null);
   const [view, setView] = useState<ViewState>('hub');
+  
+  // Germ Network State
   const [germStatus, setGermStatus] = useState<'SCANNING' | 'NO_RECORD' | 'READY'>('SCANNING');
+  const [peerHandle, setPeerHandle] = useState('');
+  const [peerStatus, setPeerStatus] = useState('');
+  const [peerKey, setPeerKey] = useState<string | null>(null);
 
   useEffect(() => {
     const init = async () => {
@@ -39,7 +44,6 @@ export default function App() {
     init();
   }, []);
 
-  // 1. Check if you already have a Germ Declaration on your account
   const checkGermRecord = async (currentSession: OAuthSession) => {
     try {
       const agent = new Agent(currentSession);
@@ -50,7 +54,6 @@ export default function App() {
       });
       if (res.data) setGermStatus('READY');
     } catch (e) {
-      // Error usually means the record doesn't exist yet
       setGermStatus('NO_RECORD');
     }
   };
@@ -62,19 +65,15 @@ export default function App() {
     }
   };
 
-  // 2. The Logic to Create and Upload the Keys
   const generateGermKeys = async () => {
     if (!session) return;
     setGermStatus('SCANNING');
     try {
       const agent = new Agent(session);
-
-      // Generating 32 random bytes to simulate an ed25519 public key structure for now
       const mockKeyBytes = new Uint8Array(32);
       window.crypto.getRandomValues(mockKeyBytes);
       const mockKeyBase64 = btoa(String.fromCharCode.apply(null, Array.from(mockKeyBytes)));
 
-      // Creating the exact record from the SDK documentation
       await agent.com.atproto.repo.putRecord({
         repo: session.did,
         collection: 'com.germnetwork.declaration',
@@ -89,13 +88,40 @@ export default function App() {
           }
         }
       });
-
       setGermStatus('READY');
-      alert("Germ Declaration successfully published to the AT Protocol!");
     } catch (e) {
-      console.error("Failed to publish record", e);
-      alert("Network error: Could not publish keys.");
       setGermStatus('NO_RECORD');
+    }
+  };
+
+  const locatePeer = async () => {
+    if (!session || !peerHandle) return;
+    setPeerStatus('SEARCHING_NETWORK...');
+    setPeerKey(null);
+    try {
+      const agent = new Agent(session);
+      
+      // 1. Resolve handle to DID
+      let targetDid = peerHandle;
+      if (!peerHandle.startsWith('did:')) {
+        const res = await agent.resolveHandle({ handle: peerHandle });
+        targetDid = res.data.did;
+      }
+
+      // 2. Fetch their Germ Declaration record
+      const record = await agent.com.atproto.repo.getRecord({
+        repo: targetDid,
+        collection: 'com.germnetwork.declaration',
+        rkey: 'self'
+      });
+
+      // 3. Extract their public key
+      const theirKey = (record.data.value as any).currentKey;
+      setPeerKey(theirKey);
+      setPeerStatus('PEER_FOUND_KEY_ACQUIRED');
+    } catch (e) {
+      console.error(e);
+      setPeerStatus('ERR: PEER_NOT_FOUND_OR_NO_KEYS');
     }
   };
 
@@ -109,18 +135,34 @@ export default function App() {
         <p>&gt; PROTOCOL: ARMORED_MSG_v1</p>
         <p>&gt; NS: com.germnetwork.declaration</p>
         <p>&gt; PLAYER: {session?.did}</p>
-        <p style={{marginTop: '20px', fontWeight: 'bold'}}>
+        <p style={{marginTop: '10px', fontWeight: 'bold'}}>
           &gt; STATUS: {germStatus === 'SCANNING' ? 'QUERYING_PDS...' : germStatus === 'NO_RECORD' ? 'NO_KEYS_FOUND' : 'ENCRYPTION_ACTIVE'}
         </p>
       </div>
       
+      {germStatus === 'READY' && (
+        <div style={{marginTop: '20px', border: '1px dashed #f0f', padding: '15px', width: '85%', maxWidth: '500px'}}>
+          <p style={{marginBottom: '10px'}}>&gt; PEER_DISCOVERY</p>
+          <input 
+            placeholder="target handle or did" 
+            value={peerHandle}
+            onChange={(e) => setPeerHandle(e.target.value)}
+            style={{ background: '#000', color: '#f0f', border: '1px solid #f0f', padding: '10px', width: '90%', marginBottom: '10px', fontFamily: 'monospace' }} 
+          />
+          <button onClick={locatePeer} style={{...btn, padding: '10px', width: '90%', color: '#000', background: '#f0f', borderColor: '#f0f', margin: '0'}}>LOCATE_PEER</button>
+          
+          {peerStatus && <p style={{marginTop: '15px', fontSize: '0.9rem', wordBreak: 'break-all'}}>&gt; {peerStatus}</p>}
+          {peerKey && <p style={{marginTop: '5px', fontSize: '0.8rem', opacity: 0.8, wordBreak: 'break-all'}}>&gt; KEY: {peerKey}</p>}
+        </div>
+      )}
+
       {germStatus === 'NO_RECORD' && (
         <button onClick={generateGermKeys} style={{...btn, background: '#f0f', color: '#000', borderColor: '#f0f', marginTop: '20px'}}>
           GENERATE_KEYS
         </button>
       )}
       
-      <button onClick={() => setView('hub')} style={{...btn, color: '#f0f', borderColor: '#f0f', marginTop: '10px'}}>RETURN</button>
+      <button onClick={() => setView('hub')} style={{...btn, color: '#f0f', borderColor: '#f0f', marginTop: '20px'}}>RETURN</button>
     </div>
   );
 
