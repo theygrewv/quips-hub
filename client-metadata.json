@@ -2,7 +2,7 @@
   "client_id": "https://quips.cc/client-metadata.json",
   "client_name": "Quips",
   "client_uri": "https://quips.cc",
-  "logo_uri": "https://quips.cc/shakasign.png",
+  "logo_uri": "https://quips.cc/logo192.png",
   "redirect_uris": ["https://quips.cc", "https://quips.cc/"],
   "grant_types": ["authorization_code", "refresh_token"],
   "response_types": ["code"],
