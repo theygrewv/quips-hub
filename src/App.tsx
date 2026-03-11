@@ -11,7 +11,6 @@ export default function App() {
   const [session, setSession] = useState<OAuthSession | null>(null);
   const [view, setView] = useState<ViewState>('hub');
   
-  // Germ Network State
   const [germStatus, setGermStatus] = useState<'SCANNING' | 'NO_RECORD' | 'READY'>('SCANNING');
   const [peerHandle, setPeerHandle] = useState('');
   const [peerStatus, setPeerStatus] = useState('');
@@ -72,18 +71,11 @@ export default function App() {
     setGermStatus('SCANNING');
     try {
       const agent = new Agent(session);
-
-      // 1. Generate a REAL ed25519 keypair
       const keypair = nacl.sign.keyPair();
       
-      // 2. We must store the PRIVATE key locally (never send this to the network)
-      // In a full app, you'd encrypt this in localStorage, but for now we just save it
       localStorage.setItem('germ_private_key', encodeBase64(keypair.secretKey));
-
-      // 3. Format the PUBLIC key for the AT Protocol
       const publicKeyBase64 = encodeBase64(keypair.publicKey);
 
-      // 4. Publish the real public key to the declaration record
       await agent.com.atproto.repo.putRecord({
         repo: session.did,
         collection: 'com.germnetwork.declaration',
@@ -107,6 +99,7 @@ export default function App() {
     }
   };
 
+  // --- THE NEW PDS LOOKUP LOGIC ---
   const locatePeer = async () => {
     if (!session || !peerHandle) return;
     setPeerStatus('SEARCHING_NETWORK...');
@@ -121,20 +114,38 @@ export default function App() {
         targetDid = res.data.did;
       }
 
-      // 2. Fetch their Germ Declaration record
-      const record = await agent.com.atproto.repo.getRecord({
-        repo: targetDid,
-        collection: 'com.germnetwork.declaration',
-        rkey: 'self'
-      });
+      setPeerStatus('LOCATING_PEER_PDS...');
+      
+      // 2. Ask the global directory where this user's data actually lives
+      const didDocReq = await fetch(`https://plc.directory/${targetDid}`);
+      const didDoc = await didDocReq.json();
+      
+      // Find their specific Personal Data Server (PDS)
+      const pdsService = didDoc.service?.find((s: any) => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer');
+      if (!pdsService || !pdsService.serviceEndpoint) {
+        throw new Error("PDS endpoint not found");
+      }
 
-      // 3. Extract their public key
-      const theirKey = (record.data.value as any).currentKey;
+      const pdsUrl = pdsService.serviceEndpoint;
+      setPeerStatus('FETCHING_DECLARATION...');
+
+      // 3. Bypass the global AppView and fetch directly from their personal server
+      const recordReq = await fetch(`${pdsUrl}/xrpc/com.atproto.repo.getRecord?repo=${targetDid}&collection=com.germnetwork.declaration&rkey=self`);
+      
+      if (!recordReq.ok) {
+        throw new Error("No keys found on peer's PDS");
+      }
+
+      const recordData = await recordReq.json();
+      const theirKey = recordData.value?.currentKey;
+      
+      if (!theirKey) throw new Error("Invalid record format");
+
       setPeerKey(theirKey);
       setPeerStatus('PEER_FOUND_KEY_ACQUIRED');
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      setPeerStatus('ERR: PEER_NOT_FOUND_OR_NO_KEYS');
+      setPeerStatus(`ERR: ${e.message || 'PEER_NOT_FOUND'}`);
     }
   };
 
@@ -165,10 +176,11 @@ export default function App() {
           <button onClick={locatePeer} style={{...btn, padding: '10px', width: '90%', color: '#000', background: '#f0f', borderColor: '#f0f', margin: '0'}}>LOCATE_PEER</button>
           
           {peerStatus && <p style={{marginTop: '15px', fontSize: '0.9rem', wordBreak: 'break-all'}}>&gt; {peerStatus}</p>}
-          {peerKey && <p style={{marginTop: '5px', fontSize: '0.8rem', opacity: 0.8, wordBreak: 'break-all'}}>&gt; KEY: {peerKey}</p>}
-                 {peerKey && (
+          
+          {peerKey && (
             <div style={{marginTop: '20px', width: '100%'}}>
-              <p style={{marginBottom: '5px', fontSize: '0.9rem'}}>&gt; COMPOSE_ARMORED_MESSAGE</p>
+              <p style={{marginBottom: '5px', fontSize: '0.8rem', opacity: 0.8, wordBreak: 'break-all'}}>&gt; PUBLIC_KEY: {peerKey}</p>
+              <p style={{marginTop: '15px', marginBottom: '5px', fontSize: '0.9rem'}}>&gt; COMPOSE_ARMORED_MESSAGE</p>
               <textarea 
                 placeholder="Enter payload..." 
                 style={{ width: '90%', height: '80px', background: '#000', color: '#0f0', border: '1px solid #0f0', padding: '10px', fontFamily: 'monospace', resize: 'none' }}
@@ -176,8 +188,7 @@ export default function App() {
               <button style={{...btn, width: '90%', padding: '10px', marginTop: '10px'}}>ENCRYPT & TRANSMIT</button>
             </div>
           )}
-
- </div>
+        </div>
       )}
 
       {germStatus === 'NO_RECORD' && (
@@ -219,4 +230,5 @@ export default function App() {
     </div>
   );
 }
+	
 
