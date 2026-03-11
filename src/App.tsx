@@ -28,6 +28,17 @@ export default function App() {
   const [isSearching, setIsSearching] = useState(false);
   const [activeThreads, setActiveThreads] = useState<Thread[]>([]);
 
+  // --- NATIVE BACK SWIPE LISTENER ---
+  useEffect(() => {
+    const handlePopState = () => {
+      if (isSearching) setIsSearching(false);
+      else if (peerKey) { setPeerKey(null); setChatHistory([]); setPeerHandle(''); }
+      else if (view !== 'hub') setView('hub');
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [isSearching, peerKey, view]);
+
   useEffect(() => {
     const init = async () => {
       try {
@@ -107,12 +118,9 @@ export default function App() {
       if (!targetHandleOrDid.startsWith('did:')) {
         const res = await agent.resolveHandle({ handle: targetHandleOrDid });
         targetDid = res.data.did;
-      } else {
-        displayHandle = targetDid.substring(0, 15) + '...'; 
-      }
+      } else { displayHandle = targetDid.substring(0, 15) + '...'; }
       setPeerDid(targetDid);
 
-// --- FETCH PROFILE DATA ---
       let profileData = null;
       try {
         const profileRes = await agent.getProfile({ actor: targetDid });
@@ -120,9 +128,7 @@ export default function App() {
         setActivePeerName(profileData.displayName || profileData.handle || displayHandle);
         setActivePeerAvatar(profileData.avatar || '');
         displayHandle = profileData.handle || displayHandle;
-      } catch (e) { 
-        setActivePeerName(displayHandle); 
-      }
+      } catch (e) { setActivePeerName(displayHandle); }
 
       const didDocReq = await fetch(`https://plc.directory/${targetDid}`);
       const didDoc = await didDocReq.json();
@@ -137,9 +143,10 @@ export default function App() {
       const theirKey = recordData.value?.currentKey;
       if (!theirKey) throw new Error("Invalid record format");
 
-      setPeerKey(theirKey); setIsSearching(false); setPeerStatus('');
+      // Push history state for back swipe
+      window.history.pushState({ view: 'chat' }, '');
       
-      // Save with new profile info
+      setPeerKey(theirKey); setIsSearching(false); setPeerStatus('');
       saveThread(targetDid, displayHandle, profileData?.displayName, profileData?.avatar);
 
       const storedPrivKey = localStorage.getItem(`germ_priv_${session.did}`);
@@ -194,7 +201,7 @@ export default function App() {
       });
 
       setChatHistory(prev => [...prev, { id: timestampRkey, text: currentInput, ciphertext: ciphertextBase64, sender: 'me', time: Date.now() }]);
-      saveThread(peerDid, activePeerName, activePeerName, activePeerAvatar); // Bump thread
+      saveThread(peerDid, activePeerName, activePeerName, activePeerAvatar); 
     } catch (e) { setMsgInput(currentInput); }
   };
 
@@ -203,15 +210,18 @@ export default function App() {
     window.location.reload();
   };
 
-// --- UI STYLES ---
+  // --- UI STYLES (PIXEL 9 OPTIMIZED) ---
   const mBg = '#141218', mSurf = '#2b2930', mPri = '#d0bcff', mOnPri = '#381e72', mSec = '#4a4458', mOnSec = '#e8def8';
-  const appCont: CSSProperties = { background: mBg, color: '#e6e0e9', minHeight: '100vh', fontFamily: 'system-ui, sans-serif', position: 'relative', overflow: 'hidden' };
-  const fab: CSSProperties = { position: 'absolute', bottom: '24px', right: '24px', width: '64px', height: '64px', borderRadius: '20px', backgroundColor: mPri, color: mOnPri, display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '32px', cursor: 'pointer', border: 'none', zIndex: 10 };
+  const appCont: CSSProperties = { background: mBg, color: '#e6e0e9', height: '100dvh', fontFamily: 'system-ui, sans-serif', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column' };
+  const fab: CSSProperties = { position: 'absolute', bottom: 'env(safe-area-inset-bottom, 24px)', right: '24px', width: '64px', height: '64px', borderRadius: '20px', backgroundColor: mPri, color: mOnPri, display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '32px', cursor: 'pointer', border: 'none', zIndex: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.4)' };
   
+  // Notice the massive top padding to dodge the Pixel 9 Activity Bar
+  const topBar: CSSProperties = { paddingTop: 'max(env(safe-area-inset-top), 48px)', paddingBottom: '16px', paddingLeft: '20px', paddingRight: '20px', display: 'flex', alignItems: 'center', gap: '16px', background: mBg, zIndex: 5, borderBottom: `1px solid ${mSurf}` };
+
   if (view === 'germ') return (
     <div style={appCont}>
-      <div style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '16px', background: mBg, borderBottom: `1px solid ${mSurf}` }}>
-        <button onClick={() => { peerKey ? setPeerKey(null) : setView('hub'); setChatHistory([]); setPeerHandle(''); }} style={{background: 'none', border: 'none', color: '#e6e0e9', fontSize: '24px', cursor: 'pointer'}}>←</button>
+      <div style={topBar}>
+        <button onClick={() => { window.history.back(); }} style={{background: 'none', border: 'none', color: '#e6e0e9', fontSize: '24px', cursor: 'pointer', padding: '0 8px'}}>←</button>
         {peerKey && activePeerAvatar && <img src={activePeerAvatar} alt="pfp" style={{width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover'}} />}
         <h2 style={{margin: 0, fontSize: '1.2rem', fontWeight: 500}}>{peerKey ? activePeerName : 'Messages'}</h2>
       </div>
@@ -226,8 +236,8 @@ export default function App() {
       )}
 
       {germStatus === 'READY' && !peerKey && (
-        <div style={{height: 'calc(100vh - 80px)', display: 'flex', flexDirection: 'column'}}>
-          <div style={{flexGrow: 1, overflowY: 'auto', padding: '16px'}}>
+        <div style={{flexGrow: 1, position: 'relative', display: 'flex', flexDirection: 'column', overflow: 'hidden'}}>
+          <div style={{flexGrow: 1, overflowY: 'auto', padding: '16px', paddingBottom: '100px'}}>
             {activeThreads.length === 0 ? (
               <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', opacity: 0.5}}><p>No active threads</p></div>
             ) : (
@@ -247,35 +257,39 @@ export default function App() {
             )}
           </div>
           {isSearching && (
-            <div style={{position: 'absolute', bottom: 0, left: 0, right: 0, background: mSurf, padding: '24px', borderTopLeftRadius: '28px', borderTopRightRadius: '28px', zIndex: 20}}>
-              <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '16px'}}><h3 style={{margin: 0}}>New Message</h3><button onClick={() => setIsSearching(false)} style={{background: 'none', border: 'none', color: '#e6e0e9'}}>✕</button></div>
-              <input placeholder="@handle" value={peerHandle} onChange={(e) => setPeerHandle(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', background: mBg, color: '#e6e0e9', border: 'none', padding: '16px', borderRadius: '16px', marginBottom: '16px' }} />
+            <div style={{position: 'absolute', bottom: 0, left: 0, right: 0, background: mSurf, padding: '24px', paddingBottom: 'max(env(safe-area-inset-bottom), 24px)', borderTopLeftRadius: '28px', borderTopRightRadius: '28px', zIndex: 20}}>
+              <div style={{display: 'flex', justifyContent: 'space-between', marginBottom: '16px'}}><h3 style={{margin: 0}}>New Message</h3><button onClick={() => window.history.back()} style={{background: 'none', border: 'none', color: '#e6e0e9', fontSize: '1.5rem'}}>✕</button></div>
+              <input placeholder="@handle" value={peerHandle} onChange={(e) => setPeerHandle(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', background: mBg, color: '#e6e0e9', border: 'none', padding: '16px', borderRadius: '16px', marginBottom: '16px', outline: 'none' }} />
               <button onClick={() => openThread(peerHandle)} style={{width: '100%', padding: '16px', background: mPri, color: mOnPri, border: 'none', borderRadius: '100px', fontWeight: 600}}>Locate Peer</button>
               {peerStatus && <p style={{textAlign: 'center', fontSize: '0.85rem', color: '#ffb4ab', marginTop: '16px'}}>{peerStatus}</p>}
             </div>
           )}
-          {!isSearching && <button onClick={() => setIsSearching(true)} style={fab}>+</button>}
+          {!isSearching && <button onClick={() => { window.history.pushState({view: 'search'}, ''); setIsSearching(true); }} style={fab}>+</button>}
         </div>
       )}
 
       {peerKey && (
-        <div style={{display: 'flex', flexDirection: 'column', height: 'calc(100vh - 60px)'}}>
+        <div style={{display: 'flex', flexDirection: 'column', flexGrow: 1, overflow: 'hidden'}}>
           <div style={{flexGrow: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '8px'}}>
             {chatHistory.length === 0 && <p style={{textAlign: 'center', opacity: 0.5, fontSize: '0.85rem', marginTop: '20px'}}>Secure channel established.</p>}
             {chatHistory.map((msg, i) => {
               const isMe = msg.sender === 'me';
               const isGrouped = i > 0 && chatHistory[i-1].sender === msg.sender;
+              const timeStr = new Date(msg.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
               return (
                 <div key={msg.id} style={{alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '80%', marginTop: isGrouped ? '2px' : '12px'}}>
-                  <div style={{ background: isMe ? mPri : mSec, color: isMe ? mOnPri : mOnSec, borderRadius: isMe ? `${isGrouped ? '4px' : '20px'} 20px 20px 20px` : `20px ${isGrouped ? '4px' : '20px'} 20px 20px`, padding: '12px 16px', lineHeight: '1.4' }}>{msg.text}</div>
+                  <div style={{ background: isMe ? mPri : mSec, color: isMe ? mOnPri : mOnSec, borderRadius: isMe ? `${isGrouped ? '4px' : '20px'} 20px 20px 20px` : `20px ${isGrouped ? '4px' : '20px'} 20px 20px`, padding: '8px 12px', lineHeight: '1.4' }}>
+                    <div style={{fontSize: '1rem'}}>{msg.text}</div>
+                    <div style={{fontSize: '0.65rem', opacity: 0.7, textAlign: 'right', marginTop: '4px'}}>{timeStr}</div>
+                  </div>
                 </div>
               );
             })}
           </div>
-          <div style={{padding: '12px 20px 24px 20px', background: mBg}}>
-            <div style={{display: 'flex', gap: '8px', alignItems: 'flex-end', background: mSurf, borderRadius: '28px', padding: '8px'}}>
-              <textarea value={msgInput} onChange={(e) => setMsgInput(e.target.value)} placeholder="Message" style={{ flexGrow: 1, maxHeight: '100px', background: 'transparent', color: '#e6e0e9', border: 'none', padding: '12px 16px', resize: 'none', outline: 'none' }} />
-              <button onClick={handleSendMessage} disabled={!msgInput.trim()} style={{background: msgInput.trim() ? mPri : '#4a4458', color: msgInput.trim() ? mOnPri : '#1c1b1f', border: 'none', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', margin: '4px'}}>↑</button>
+          <div style={{padding: '12px 20px', paddingBottom: 'max(env(safe-area-inset-bottom), 24px)', background: mBg}}>
+            <div style={{display: 'flex', gap: '8px', alignItems: 'flex-end', background: mSurf, borderRadius: '28px', padding: '6px 6px 6px 16px'}}>
+              <textarea value={msgInput} onChange={(e) => setMsgInput(e.target.value)} placeholder="Message" style={{ flexGrow: 1, maxHeight: '100px', background: 'transparent', color: '#e6e0e9', border: 'none', padding: '8px 0', resize: 'none', outline: 'none', fontFamily: 'inherit' }} />
+              <button onClick={handleSendMessage} disabled={!msgInput.trim()} style={{background: msgInput.trim() ? mPri : '#4a4458', color: msgInput.trim() ? mOnPri : '#1c1b1f', border: 'none', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', transition: 'background 0.2s', flexShrink: 0}}>↑</button>
             </div>
           </div>
         </div>
@@ -289,13 +303,13 @@ export default function App() {
   if (view === 'bats') return (<div style={rFs}><h1>[ BATS_OS ]</h1><p>Bilateral Analytics</p><button onClick={() => setView('hub')} style={rBtn}>RETURN</button></div>);
   if (view === 'glyphs') return (<div style={rFs}><h1>[ GLYPHS_DECRYPTOR ]</h1><p>Visual Patterns</p><button onClick={() => setView('hub')} style={rBtn}>RETURN</button></div>);
 
-  return (
+return (
     <div style={{ background: '#050505', color: '#0f0', minHeight: '100vh', padding: '20px', fontFamily: 'monospace', textAlign: 'center' }}>
       <h1 style={{ fontSize: '3.5rem', borderBottom: '2px solid #0f0', marginBottom: '40px' }}>quips</h1>
       {!session ? (
         <div><input id="h" placeholder="handle.bsky.social" style={{ background: '#000', color: '#0f0', border: '1px solid #0f0', padding: '15px', width: '250px' }} /><br/><br/><button onClick={login} style={{ background: '#0f0', color: '#000', padding: '15px 30px', fontWeight: 'bold', border: 'none' }}>INITIATE</button></div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}><p style={{marginBottom: '20px', wordBreak: 'break-all'}}>ID: {session.did}</p><button onClick={() => setView('bats')} style={rBtn}>BATS</button><button onClick={() => setView('glyphs')} style={rBtn}>GLYPHS</button><button onClick={() => setView('germ')} style={{...rBtn, color: '#f0f', borderColor: '#f0f'}}>GERM_NET</button><button onClick={safeLogout} style={{...rBtn, color: '#f00', borderColor: '#f00'}}>LOGOUT</button></div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}><p style={{marginBottom: '20px', wordBreak: 'break-all'}}>ID: {session.did}</p><button onClick={() => { window.history.pushState({view: 'bats'}, ''); setView('bats'); }} style={rBtn}>BATS</button><button onClick={() => { window.history.pushState({view: 'glyphs'}, ''); setView('glyphs'); }} style={rBtn}>GLYPHS</button><button onClick={() => { window.history.pushState({view: 'germ'}, ''); setView('germ'); }} style={{...rBtn, color: '#f0f', borderColor: '#f0f'}}>GERM_NET</button><button onClick={safeLogout} style={{...rBtn, color: '#f00', borderColor: '#f00'}}>LOGOUT</button></div>
       )}
     </div>
   );
