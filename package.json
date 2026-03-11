@@ -5,13 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc tsc vite buildvite build vite buildtsc vite buildvite build vite build tsc vite buildvite build vite build",
+    "build": "tsc && vite build",
     "preview": "vite preview",
-    "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
+    "deploy": "npm run build && gh-pages -d dist"
   },
   "dependencies": {
-    "@atproto/api": "latest",
+    "@atproto/api": "^0.19.3",
     "@atproto/oauth-client-browser": "latest",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

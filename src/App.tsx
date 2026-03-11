@@ -1,18 +1,6 @@
 import React, { useEffect, useState, CSSProperties } from 'react';
 import { BrowserOAuthClient, OAuthSession } from '@atproto/oauth-client-browser';
-
-// 1. Translated from com.germnetwork.declaration SDK
-interface GermDeclaration {
-  $type: 'com.germnetwork.declaration';
-  version: string;
-  currentKey: string; // ed25519 public key
-  keyPackage?: string;
-  messageMe?: {
-    messageMeUrl: string;
-    showButtonTo: 'none' | 'usersIFollow' | 'everyone' | string;
-  };
-  continuityProofs?: string[];
-}
+import { Agent } from '@atproto/api'; // <-- The new API import
 
 type ViewState = 'hub' | 'bats' | 'glyphs' | 'germ';
 
@@ -20,8 +8,6 @@ export default function App() {
   const [client, setClient] = useState<BrowserOAuthClient | null>(null);
   const [session, setSession] = useState<OAuthSession | null>(null);
   const [view, setView] = useState<ViewState>('hub');
-  
-  // Germ Network State
   const [germStatus, setGermStatus] = useState<'SCANNING' | 'NO_RECORD' | 'READY'>('SCANNING');
 
   useEffect(() => {
@@ -45,14 +31,29 @@ export default function App() {
         const res = await c.init();
         if (res && 'session' in res && res.session) {
           setSession(res.session as OAuthSession);
-          // Simulate fetching the user's Germ Declaration from their PDS
-          setTimeout(() => setGermStatus('NO_RECORD'), 1500);
+          checkGermRecord(res.session as OAuthSession);
         }
         setClient(c);
       } catch (e) { console.error(e); }
     };
     init();
   }, []);
+
+  // 1. Check if you already have a Germ Declaration on your account
+  const checkGermRecord = async (currentSession: OAuthSession) => {
+    try {
+      const agent = new Agent(currentSession);
+      const res = await agent.com.atproto.repo.getRecord({
+        repo: currentSession.did,
+        collection: 'com.germnetwork.declaration',
+        rkey: 'self'
+      });
+      if (res.data) setGermStatus('READY');
+    } catch (e) {
+      // Error usually means the record doesn't exist yet
+      setGermStatus('NO_RECORD');
+    }
+  };
 
   const login = async () => {
     const input = document.getElementById('h') as HTMLInputElement | null;
@@ -61,10 +62,41 @@ export default function App() {
     }
   };
 
-  const generateGermKeys = () => {
+  // 2. The Logic to Create and Upload the Keys
+  const generateGermKeys = async () => {
+    if (!session) return;
     setGermStatus('SCANNING');
-    // Placeholder for actual ed25519 key generation and repo.putRecord
-    setTimeout(() => setGermStatus('READY'), 2000);
+    try {
+      const agent = new Agent(session);
+
+      // Generating 32 random bytes to simulate an ed25519 public key structure for now
+      const mockKeyBytes = new Uint8Array(32);
+      window.crypto.getRandomValues(mockKeyBytes);
+      const mockKeyBase64 = btoa(String.fromCharCode.apply(null, Array.from(mockKeyBytes)));
+
+      // Creating the exact record from the SDK documentation
+      await agent.com.atproto.repo.putRecord({
+        repo: session.did,
+        collection: 'com.germnetwork.declaration',
+        rkey: 'self',
+        record: {
+          $type: 'com.germnetwork.declaration',
+          version: '1.0.0',
+          currentKey: mockKeyBase64,
+          messageMe: {
+            messageMeUrl: 'https://quips.cc/germ#',
+            showButtonTo: 'everyone'
+          }
+        }
+      });
+
+      setGermStatus('READY');
+      alert("Germ Declaration successfully published to the AT Protocol!");
+    } catch (e) {
+      console.error("Failed to publish record", e);
+      alert("Network error: Could not publish keys.");
+      setGermStatus('NO_RECORD');
+    }
   };
 
   const fs: CSSProperties = { background: '#000', color: '#0f0', height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace', textAlign: 'center' };
