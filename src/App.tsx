@@ -14,6 +14,12 @@ interface ChatMsg {
   time: number;
 }
 
+interface Thread {
+  did: string;
+  handle: string;
+  updated: number;
+}
+
 export default function App() {
   const [client, setClient] = useState<BrowserOAuthClient | null>(null);
   const [session, setSession] = useState<OAuthSession | null>(null);
@@ -24,10 +30,12 @@ export default function App() {
   const [peerStatus, setPeerStatus] = useState('');
   const [peerKey, setPeerKey] = useState<string | null>(null);
   const [peerDid, setPeerDid] = useState<string | null>(null);
+  const [activePeerName, setActivePeerName] = useState(''); // For the header
   
   const [msgInput, setMsgInput] = useState('');
   const [chatHistory, setChatHistory] = useState<ChatMsg[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [activeThreads, setActiveThreads] = useState<Thread[]>([]);
 
   useEffect(() => {
     const init = async () => {
@@ -51,12 +59,30 @@ export default function App() {
         if (res && 'session' in res && res.session) {
           setSession(res.session as OAuthSession);
           checkGermRecord(res.session as OAuthSession);
+          loadThreads((res.session as OAuthSession).did);
         }
         setClient(c);
       } catch (e) { console.error(e); }
     };
     init();
   }, []);
+
+  const loadThreads = (myDid: string) => {
+    const stored = localStorage.getItem(`germ_threads_${myDid}`);
+    if (stored) {
+      setActiveThreads(JSON.parse(stored));
+    }
+  };
+
+  const saveThread = (did: string, handle: string) => {
+    if (!session) return;
+    setActiveThreads(prev => {
+      const filtered = prev.filter(t => t.did !== did);
+      const updated = [{ did, handle, updated: Date.now() }, ...filtered];
+      localStorage.setItem(`germ_threads_${session.did}`, JSON.stringify(updated));
+      return updated;
+    });
+  };
 
   const checkGermRecord = async (currentSession: OAuthSession) => {
     try {
@@ -112,20 +138,28 @@ export default function App() {
     }
   };
 
-  const locatePeer = async () => {
-    if (!session || !peerHandle) return;
-    setPeerStatus('Searching...');
+  const openThread = async (targetHandleOrDid: string) => {
+    if (!session) return;
+    setPeerStatus('Opening secure channel...');
     setPeerKey(null);
     setPeerDid(null);
     setChatHistory([]);
     try {
       const agent = new Agent(session);
-      let targetDid = peerHandle;
-      if (!peerHandle.startsWith('did:')) {
-        const res = await agent.resolveHandle({ handle: peerHandle });
+      let targetDid = targetHandleOrDid;
+      let displayHandle = targetHandleOrDid;
+
+      // Resolve if it's a handle
+      if (!targetHandleOrDid.startsWith('did:')) {
+        const res = await agent.resolveHandle({ handle: targetHandleOrDid });
         targetDid = res.data.did;
+      } else {
+        // Just use a truncated DID for display if we don't know their handle
+        displayHandle = targetDid.substring(0, 15) + '...'; 
       }
+
       setPeerDid(targetDid);
+      setActivePeerName(displayHandle);
 
       const didDocReq = await fetch(`https://plc.directory/${targetDid}`);
       const didDoc = await didDocReq.json();
@@ -134,15 +168,18 @@ export default function App() {
 
       const pdsUrl = pdsService.serviceEndpoint;
       const recordReq = await fetch(`${pdsUrl}/xrpc/com.atproto.repo.getRecord?repo=${targetDid}&collection=com.germnetwork.declaration&rkey=self`);
-      if (!recordReq.ok) throw new Error("No keys found on PDS");
+      if (!recordReq.ok) throw new Error("No encryption keys found for this user");
 
       const recordData = await recordReq.json();
       const theirKey = recordData.value?.currentKey;
       if (!theirKey) throw new Error("Invalid record format");
 
       setPeerKey(theirKey);
-      setIsSearching(false); // Close the search dialog
+      setIsSearching(false);
       setPeerStatus('');
+      
+      // Save to Active Threads
+      saveThread(targetDid, targetHandleOrDid.startsWith('did:') ? displayHandle : targetHandleOrDid);
 
       // Fetch history
       const storedPrivKey = localStorage.getItem(`germ_priv_${session.did}`);
@@ -228,6 +265,9 @@ export default function App() {
         time: Date.now()
       };
       setChatHistory(prev => [...prev, newMsg]);
+      
+      // Bump thread to top
+      saveThread(peerDid, activePeerName);
     } catch (e) {
       console.error("Transmission failed:", e);
       setMsgInput(currentInput); 
@@ -236,7 +276,7 @@ export default function App() {
 
   const safeLogout = () => {
     Object.keys(localStorage).forEach(k => {
-      if (!k.startsWith('germ_priv_')) localStorage.removeItem(k);
+      if (!k.startsWith('germ_priv_') && !k.startsWith('germ_threads_')) localStorage.removeItem(k);
     });
     window.location.reload();
   };
@@ -250,19 +290,16 @@ export default function App() {
   const matOnSecondary = '#e8def8';
 
   const appContainer: CSSProperties = { background: matBg, color: '#e6e0e9', minHeight: '100vh', fontFamily: 'system-ui, -apple-system, sans-serif', position: 'relative', overflow: 'hidden' };
-  
   const fabStyle: CSSProperties = { position: 'absolute', bottom: '24px', right: '24px', width: '64px', height: '64px', borderRadius: '20px', backgroundColor: matPrimary, color: matOnPrimary, display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '32px', cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,0.4)', border: 'none', zIndex: 10 };
-
-  const topBar: CSSProperties = { padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '16px', background: matBg, position: 'sticky', top: 0, zIndex: 5 };
+  const topBar: CSSProperties = { padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '16px', background: matBg, position: 'sticky', top: 0, zIndex: 5, borderBottom: `1px solid ${matSurface}` };
   
   // Germ Screen
   if (view === 'germ') return (
     <div style={appContainer}>
       
-      {/* Top App Bar */}
       <div style={topBar}>
-        <button onClick={() => { peerKey ? setPeerKey(null) : setView('hub'); setChatHistory([]); }} style={{background: 'none', border: 'none', color: '#e6e0e9', fontSize: '24px', cursor: 'pointer'}}>←</button>
-        <h2 style={{margin: 0, fontSize: '1.2rem', fontWeight: 500}}>{peerKey ? peerHandle : 'Messages'}</h2>
+        <button onClick={() => { peerKey ? setPeerKey(null) : setView('hub'); setChatHistory([]); setPeerHandle(''); }} style={{background: 'none', border: 'none', color: '#e6e0e9', fontSize: '24px', cursor: 'pointer'}}>←</button>
+        <h2 style={{margin: 0, fontSize: '1.2rem', fontWeight: 500}}>{peerKey ? activePeerName : 'Messages'}</h2>
       </div>
 
       {germStatus === 'NO_RECORD' && (
@@ -275,16 +312,33 @@ export default function App() {
         </div>
       )}
 
+      {/* INBOX: ACTIVE THREADS */}
       {germStatus === 'READY' && !peerKey && (
-        <div style={{padding: '20px', height: 'calc(100vh - 80px)', display: 'flex', flexDirection: 'column'}}>
+        <div style={{height: 'calc(100vh - 80px)', display: 'flex', flexDirection: 'column'}}>
           
-          {/* Thread List Placeholder */}
-          <div style={{flexGrow: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', opacity: 0.5}}>
-            <p style={{margin: 0}}>No active threads</p>
-            <p style={{fontSize: '0.8rem', marginTop: '8px'}}>Tap + to locate a peer</p>
+          <div style={{flexGrow: 1, overflowY: 'auto', padding: '16px'}}>
+            {activeThreads.length === 0 ? (
+              <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', opacity: 0.5}}>
+                <p style={{margin: 0}}>No active threads</p>
+                <p style={{fontSize: '0.8rem', marginTop: '8px'}}>Tap + to locate a peer</p>
+              </div>
+            ) : (
+              <div style={{display: 'flex', flexDirection: 'column', gap: '8px'}}>
+                {activeThreads.map(thread => (
+                  <div key={thread.did} onClick={() => openThread(thread.did)} style={{background: matSurface, padding: '16px', borderRadius: '16px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '16px', transition: 'background 0.2s'}}>
+                    <div style={{width: '48px', height: '48px', borderRadius: '50%', background: matPrimary, color: matOnPrimary, display: 'flex', justifyContent: 'center', alignItems: 'center', fontWeight: 'bold', fontSize: '1.2rem'}}>
+                      {thread.handle.substring(0,2).toUpperCase()}
+                    </div>
+                    <div>
+                      <h4 style={{margin: 0, fontSize: '1.1rem', fontWeight: 500}}>{thread.handle}</h4>
+                      <p style={{margin: 0, fontSize: '0.85rem', opacity: 0.7, marginTop: '4px'}}>Tap to sync channel...</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Search Dialog */}
           {isSearching && (
             <div style={{position: 'absolute', bottom: 0, left: 0, right: 0, background: matSurface, padding: '24px', borderTopLeftRadius: '28px', borderTopRightRadius: '28px', boxShadow: '0 -4px 20px rgba(0,0,0,0.5)', zIndex: 20}}>
               <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px'}}>
@@ -297,33 +351,25 @@ export default function App() {
                 onChange={(e) => setPeerHandle(e.target.value)}
                 style={{ width: '100%', boxSizing: 'border-box', background: matBg, color: '#e6e0e9', border: 'none', padding: '16px 20px', borderRadius: '16px', marginBottom: '16px', fontSize: '1rem' }} 
               />
-              <button onClick={locatePeer} style={{width: '100%', padding: '16px', background: matPrimary, color: matOnPrimary, border: 'none', borderRadius: '100px', fontWeight: 600, fontSize: '1rem'}}>Locate</button>
+              <button onClick={() => openThread(peerHandle)} style={{width: '100%', padding: '16px', background: matPrimary, color: matOnPrimary, border: 'none', borderRadius: '100px', fontWeight: 600, fontSize: '1rem'}}>Locate Peer</button>
               {peerStatus && <p style={{textAlign: 'center', fontSize: '0.85rem', color: '#ffb4ab', marginTop: '16px'}}>{peerStatus}</p>}
             </div>
           )}
 
-          {/* Material FAB */}
-          {!isSearching && (
-            <button onClick={() => setIsSearching(true)} style={fabStyle}>+</button>
-          )}
+          {!isSearching && <button onClick={() => setIsSearching(true)} style={fabStyle}>+</button>}
         </div>
       )}
 
+      {/* ACTIVE CHAT SCREEN */}
       {peerKey && (
         <div style={{display: 'flex', flexDirection: 'column', height: 'calc(100vh - 60px)'}}>
-          
-          {/* Chat Bubbles Area */}
           <div style={{flexGrow: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '8px'}}>
             {chatHistory.length === 0 && <p style={{textAlign: 'center', opacity: 0.5, fontSize: '0.85rem', marginTop: '20px'}}>Secure channel established.</p>}
             
             {chatHistory.map((msg, i) => {
               const isMe = msg.sender === 'me';
-              // Check if previous message was from the same sender to group bubbles
               const isGrouped = i > 0 && chatHistory[i-1].sender === msg.sender;
-              
-              const bubbleRadius = isMe 
-                ? `${isGrouped ? '4px' : '20px'} 20px 20px 20px` // Right side flat if grouped
-                : `20px ${isGrouped ? '4px' : '20px'} 20px 20px`; // Left side flat if grouped
+              const bubbleRadius = isMe ? `${isGrouped ? '4px' : '20px'} 20px 20px 20px` : `20px ${isGrouped ? '4px' : '20px'} 20px 20px`;
 
               return (
                 <div key={msg.id} style={{alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '80%', marginTop: isGrouped ? '2px' : '12px'}}>
@@ -335,18 +381,10 @@ export default function App() {
             })}
           </div>
 
-          {/* Pill Input Area */}
           <div style={{padding: '12px 20px 24px 20px', background: matBg}}>
             <div style={{display: 'flex', gap: '8px', alignItems: 'flex-end', background: matSurface, borderRadius: '28px', padding: '8px'}}>
-              <textarea 
-                value={msgInput}
-                onChange={(e) => setMsgInput(e.target.value)}
-                placeholder="Message" 
-                style={{ flexGrow: 1, maxHeight: '100px', background: 'transparent', color: '#e6e0e9', border: 'none', padding: '12px 16px', fontSize: '1rem', resize: 'none', outline: 'none' }} 
-              />
-              <button onClick={handleSendMessage} disabled={!msgInput.trim()} style={{background: msgInput.trim() ? matPrimary : '#4a4458', color: msgInput.trim() ? matOnPrimary : '#1c1b1f', border: 'none', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', margin: '4px', transition: 'background 0.2s'}}>
-                ↑
-              </button>
+              <textarea value={msgInput} onChange={(e) => setMsgInput(e.target.value)} placeholder="Message" style={{ flexGrow: 1, maxHeight: '100px', background: 'transparent', color: '#e6e0e9', border: 'none', padding: '12px 16px', fontSize: '1rem', resize: 'none', outline: 'none' }} />
+              <button onClick={handleSendMessage} disabled={!msgInput.trim()} style={{background: msgInput.trim() ? matPrimary : '#4a4458', color: msgInput.trim() ? matOnPrimary : '#1c1b1f', border: 'none', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer', margin: '4px', transition: 'background 0.2s'}}>↑</button>
             </div>
           </div>
         </div>
@@ -354,7 +392,6 @@ export default function App() {
     </div>
   );
 
-  // Keep Quips Hub Retro style for BATS and GLYPHS
   const retroFs: CSSProperties = { background: '#000', color: '#0f0', height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace', textAlign: 'center' };
   const retroBtn: CSSProperties = { padding: '20px', background: '#111', color: '#0f0', border: '1px solid #0f0', margin: '10px', cursor: 'pointer', fontWeight: 'bold', width: '220px' };
 
@@ -367,9 +404,4 @@ export default function App() {
       {!session ? (
         <div><p>[ IDENTIFY_PLAYER ]</p><br/><input id="h" placeholder="handle.bsky.social" style={{ background: '#000', color: '#0f0', border: '1px solid #0f0', padding: '15px', width: '250px' }} /><br/><br/><button onClick={login} style={{ background: '#0f0', color: '#000', padding: '15px 30px', fontWeight: 'bold', border: 'none' }}>INITIATE</button></div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}><p style={{marginBottom: '20px', wordBreak: 'break-all'}}>PLAYER_DID: {session.did}</p><button onClick={() => setView('bats')} style={retroBtn}>BATS</button><button onClick={() => setView('glyphs')} style={retroBtn}>GLYPHS</button><button onClick={() => setView('germ')} style={{...retroBtn, color: '#f0f', borderColor: '#f0f'}}>GERM_NET</button><button onClick={safeLogout} style={{...retroBtn, color: '#f00', borderColor: '#f00'}}>LOGOUT</button></div>
-      )}
-    </div>
-  );
-}
-
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}><p style={{marginBottom: '20px', wordBreak: 'break-all'}}>PLAYER_DID: {session.did}</p><button onClick={() => setView('bats')} style={retroBtn}>BATS</button><button onClick={() => setView('glyphs')} style={retroBtn}>GLYPHS</button><button onClick={() => setView('germ')} style={{...retroBtn, color: '#f0f', borderColor: '#f0f'}}>GERM_NET<
