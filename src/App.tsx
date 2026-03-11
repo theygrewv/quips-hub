@@ -149,11 +149,11 @@ export default function App() {
           const theirMsgsReq = await fetch(`${pdsUrl}/xrpc/com.atproto.repo.listRecords?repo=${targetDid}&collection=com.germnetwork.message`);
           const theirMsgsData = await theirMsgsReq.json();
           for (const item of (theirMsgsData.records || [])) {
-            if (item.value.recipientDid === session.did) {
-              const nonce = decodeBase64(item.value.nonce);
-              const cipher = decodeBase64(item.value.ciphertext);
+            if ((item.value as any).recipientDid === session.did) {
+              const nonce = decodeBase64((item.value as any).nonce);
+              const cipher = decodeBase64((item.value as any).ciphertext);
               const dec = nacl.box.open(cipher, nonce, theirPub, myPriv);
-              if (dec) allMsgs.push({ id: item.uri, text: encodeUTF8(dec), ciphertext: item.value.ciphertext, sender: 'peer', time: new Date(item.value.createdAt).getTime() });
+              if (dec) allMsgs.push({ id: item.uri, text: encodeUTF8(dec), ciphertext: (item.value as any).ciphertext, sender: 'peer', time: new Date((item.value as any).createdAt).getTime() });
             }
           }
         } catch (e) { console.log("No messages from peer"); }
@@ -162,12 +162,12 @@ export default function App() {
         try {
           const myMsgsReq = await agent.com.atproto.repo.listRecords({ repo: session.did, collection: 'com.germnetwork.message' });
           for (const item of (myMsgsReq.data.records || [])) {
-            if (item.value.recipientDid === targetDid) {
-              const nonce = decodeBase64(item.value.nonce);
-              const cipher = decodeBase64(item.value.ciphertext);
+            if ((item.value as any).recipientDid === targetDid) {
+              const nonce = decodeBase64((item.value as any).nonce);
+              const cipher = decodeBase64((item.value as any).ciphertext);
               // We can decrypt our own messages because ECDH creates a shared secret
               const dec = nacl.box.open(cipher, nonce, theirPub, myPriv);
-              if (dec) allMsgs.push({ id: item.uri, text: encodeUTF8(dec), ciphertext: item.value.ciphertext, sender: 'me', time: new Date(item.value.createdAt).getTime() });
+              if (dec) allMsgs.push({ id: item.uri, text: encodeUTF8(dec), ciphertext: (item.value as any).ciphertext, sender: 'me', time: new Date((item.value as any).createdAt).getTime() });
             }
           }
         } catch (e) { console.log("No messages from me"); }
