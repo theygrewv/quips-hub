@@ -65,7 +65,7 @@ export default function App() {
         collection: 'com.germnetwork.declaration',
         rkey: 'self'
       });
-      if (res.data) setGermStatus('READY');
+      if (res.data) { if (localStorage.getItem('germ_priv_' + currentSession.did)) { setGermStatus('READY'); } else { setGermStatus('NO_RECORD'); } }
     } catch (e) {
       setGermStatus('NO_RECORD');
     }
