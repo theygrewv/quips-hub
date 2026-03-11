@@ -1,12 +1,28 @@
 import React, { useEffect, useState, CSSProperties } from 'react';
 import { BrowserOAuthClient, OAuthSession } from '@atproto/oauth-client-browser';
 
+// 1. Translated from com.germnetwork.declaration SDK
+interface GermDeclaration {
+  $type: 'com.germnetwork.declaration';
+  version: string;
+  currentKey: string; // ed25519 public key
+  keyPackage?: string;
+  messageMe?: {
+    messageMeUrl: string;
+    showButtonTo: 'none' | 'usersIFollow' | 'everyone' | string;
+  };
+  continuityProofs?: string[];
+}
+
 type ViewState = 'hub' | 'bats' | 'glyphs' | 'germ';
 
 export default function App() {
   const [client, setClient] = useState<BrowserOAuthClient | null>(null);
   const [session, setSession] = useState<OAuthSession | null>(null);
   const [view, setView] = useState<ViewState>('hub');
+  
+  // Germ Network State
+  const [germStatus, setGermStatus] = useState<'SCANNING' | 'NO_RECORD' | 'READY'>('SCANNING');
 
   useEffect(() => {
     const init = async () => {
@@ -29,6 +45,8 @@ export default function App() {
         const res = await c.init();
         if (res && 'session' in res && res.session) {
           setSession(res.session as OAuthSession);
+          // Simulate fetching the user's Germ Declaration from their PDS
+          setTimeout(() => setGermStatus('NO_RECORD'), 1500);
         }
         setClient(c);
       } catch (e) { console.error(e); }
@@ -43,18 +61,34 @@ export default function App() {
     }
   };
 
+  const generateGermKeys = () => {
+    setGermStatus('SCANNING');
+    // Placeholder for actual ed25519 key generation and repo.putRecord
+    setTimeout(() => setGermStatus('READY'), 2000);
+  };
+
   const fs: CSSProperties = { background: '#000', color: '#0f0', height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace', textAlign: 'center' };
   const btn: CSSProperties = { padding: '20px', background: '#111', color: '#0f0', border: '1px solid #0f0', margin: '10px', cursor: 'pointer', fontWeight: 'bold', width: '220px' };
 
   if (view === 'germ') return (
     <div style={{...fs, color: '#f0f'}}>
       <h1>[ GERM_NETWORK ]</h1>
-      <div style={{border: '1px solid #f0f', padding: '20px', width: '80%', textAlign: 'left', wordBreak: 'break-all'}}>
-        <p>&gt; PROTOCOL: ARMORED_MSG</p>
-        <p>&gt; STATUS: P2P_READY</p>
+      <div style={{border: '1px solid #f0f', padding: '20px', width: '85%', maxWidth: '500px', textAlign: 'left', wordBreak: 'break-all'}}>
+        <p>&gt; PROTOCOL: ARMORED_MSG_v1</p>
+        <p>&gt; NS: com.germnetwork.declaration</p>
         <p>&gt; PLAYER: {session?.did}</p>
+        <p style={{marginTop: '20px', fontWeight: 'bold'}}>
+          &gt; STATUS: {germStatus === 'SCANNING' ? 'QUERYING_PDS...' : germStatus === 'NO_RECORD' ? 'NO_KEYS_FOUND' : 'ENCRYPTION_ACTIVE'}
+        </p>
       </div>
-      <button onClick={() => setView('hub')} style={{...btn, color: '#f0f', borderColor: '#f0f'}}>RETURN</button>
+      
+      {germStatus === 'NO_RECORD' && (
+        <button onClick={generateGermKeys} style={{...btn, background: '#f0f', color: '#000', borderColor: '#f0f', marginTop: '20px'}}>
+          GENERATE_KEYS
+        </button>
+      )}
+      
+      <button onClick={() => setView('hub')} style={{...btn, color: '#f0f', borderColor: '#f0f', marginTop: '10px'}}>RETURN</button>
     </div>
   );
 
